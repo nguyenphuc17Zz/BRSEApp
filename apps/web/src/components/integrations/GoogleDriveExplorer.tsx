@@ -21,7 +21,7 @@ import { GoogleFileItem } from '../../types';
 import { apiClient } from '../../api/client';
 import { useToast } from '../../context/ToastContext';
 import { useConfirm } from '../../context/ConfirmDialogContext';
-import { FileFormatIcon } from '../common/FileFormatIcon';
+import { FileFormatIcon, resolveFileType, FileTypeCategory } from '../common/FileFormatIcon';
 
 interface GoogleDriveExplorerProps {
   files: GoogleFileItem[];
@@ -71,6 +71,39 @@ export const GoogleDriveExplorer: React.FC<GoogleDriveExplorerProps> = ({
 
   // Uploading state
   const [isUploading, setIsUploading] = useState(false);
+
+  // Format Filter state
+  type FormatFilterType = 'all' | 'folder' | 'doc' | 'sheet' | 'slide' | 'pdf';
+  const [selectedFormatFilter, setSelectedFormatFilter] = useState<FormatFilterType>('all');
+
+  const getFileCategory = (f: GoogleFileItem): FileTypeCategory => {
+    return resolveFileType(f.type, f.name, f.mimeType);
+  };
+
+  const formatCounts = {
+    all: files.length,
+    folder: files.filter(f => getFileCategory(f) === 'folder').length,
+    doc: files.filter(f => getFileCategory(f) === 'doc').length,
+    sheet: files.filter(f => getFileCategory(f) === 'sheet').length,
+    slide: files.filter(f => getFileCategory(f) === 'slide').length,
+    pdf: files.filter(f => getFileCategory(f) === 'pdf').length,
+  };
+
+  const filteredFiles = files.filter(file => {
+    const cat = getFileCategory(file);
+    if (selectedFormatFilter !== 'all') {
+      if (cat !== selectedFormatFilter) {
+        return false;
+      }
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      if (!file.name.toLowerCase().includes(q)) {
+        return false;
+      }
+    }
+    return true;
+  });
 
   const extractFolderId = (input: string): string | null => {
     const trimmed = input.trim();
@@ -359,6 +392,58 @@ export const GoogleDriveExplorer: React.FC<GoogleDriveExplorerProps> = ({
         </div>
       </div>
 
+      {/* Format Filter Bar */}
+      <div className="px-5 py-2.5 bg-slate-900/90 border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 scrollbar-none">
+          {([
+            { key: 'all' as const, label: 'Tất cả', icon: null },
+            { key: 'folder' as const, label: 'Thư mục', icon: <Folder className="w-3 h-3 text-amber-400" /> },
+            { key: 'doc' as const, label: 'Tài liệu', icon: <FileFormatIcon type="doc" size="xs" /> },
+            { key: 'sheet' as const, label: 'Bảng tính', icon: <FileFormatIcon type="sheet" size="xs" /> },
+            { key: 'slide' as const, label: 'Trình chiếu', icon: <FileFormatIcon type="slide" size="xs" /> },
+            { key: 'pdf' as const, label: 'PDF', icon: <FileFormatIcon type="pdf" size="xs" /> },
+          ]).map((tab) => {
+            const count = formatCounts[tab.key];
+            const isActive = selectedFormatFilter === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setSelectedFormatFilter(tab.key)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all ${
+                  isActive
+                    ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40 shadow-sm shadow-sky-950'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent'
+                }`}
+              >
+                {tab.icon}
+                <span>{tab.label}</span>
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                  isActive ? 'bg-sky-500/30 text-sky-200' : 'bg-slate-800 text-slate-400'
+                }`}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {selectedFormatFilter !== 'all' && (
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-slate-400">
+              Đang lọc: {filteredFiles.length} / {files.length} mục
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelectedFormatFilter('all')}
+              className="text-[10px] text-sky-400 hover:text-sky-300 font-medium px-2 py-0.5 rounded bg-sky-500/10 border border-sky-500/20 hover:bg-sky-500/20 transition-colors"
+            >
+              Xem tất cả
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Files List Table */}
       <div className="divide-y divide-slate-800/80">
         {files.length === 0 ? (
@@ -385,8 +470,28 @@ export const GoogleDriveExplorer: React.FC<GoogleDriveExplorerProps> = ({
                 : 'Bấm "+ Thư mục mới" hoặc "Tải file lên" để bắt đầu thao tác.'}
             </p>
           </div>
+        ) : filteredFiles.length === 0 ? (
+          <div className="p-10 text-center space-y-2.5">
+            <Search className="w-8 h-8 text-slate-600 mx-auto" />
+            <p className="text-slate-300 text-xs font-medium">
+              Không tìm thấy mục nào phù hợp với bộ lọc hiện tại.
+            </p>
+            <p className="text-slate-500 text-[11px]">
+              Thư mục này hiện có {files.length} mục, nhưng không có mục nào khớp với định dạng hoặc từ khóa đang chọn.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedFormatFilter('all');
+                onSearchChange('');
+              }}
+              className="px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-sky-400 text-xs font-medium border border-slate-700 transition-colors"
+            >
+              Đặt lại bộ lọc & Tìm kiếm
+            </button>
+          </div>
         ) : (
-          files.map((file) => (
+          filteredFiles.map((file) => (
             <div
               key={file.id}
               className="px-5 py-3 hover:bg-slate-850/50 transition-colors flex items-center justify-between gap-4 group"

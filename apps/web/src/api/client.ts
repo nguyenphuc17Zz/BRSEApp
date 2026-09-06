@@ -259,6 +259,15 @@ export const apiClient = {
     return res.data;
   },
 
+  deleteAllDocuments: async (projectId?: string, fileType?: string, docIds?: string[]): Promise<any> => {
+    const payload: { project_id?: string; file_type?: string; doc_ids?: string[] } = {};
+    if (projectId) payload.project_id = projectId;
+    if (fileType && fileType !== 'all') payload.file_type = fileType;
+    if (docIds && docIds.length > 0) payload.doc_ids = docIds;
+    const res = await api.post('/documents/bulk-delete', payload);
+    return res.data;
+  },
+
   analyzeDocument: async (id: string): Promise<any> => {
     const res = await api.post(`/documents/${id}/analyze`);
     return res.data;
@@ -306,6 +315,16 @@ export const apiClient = {
 
   browseDirectory: async (initialDir?: string): Promise<{ success: boolean; path: string; canceled: boolean; error?: string }> => {
     const res = await api.post('/documents/browse-directory', { initial_dir: initialDir });
+    return res.data;
+  },
+
+  getCommonPaths: async (): Promise<{
+    desktop: string;
+    downloads: string;
+    documents: string;
+    default_output: string;
+  }> => {
+    const res = await api.get('/documents/common-paths');
     return res.data;
   },
 
@@ -406,6 +425,13 @@ export const apiClient = {
 
   getDriveFolderInfo: async (folderId: string, accountId?: string): Promise<{ id: string; name: string }> => {
     const res = await api.get(`/integrations/google/drive/folders/${folderId}`, { params: { account_id: accountId } });
+    return res.data;
+  },
+
+  findExistingGoogleTranslation: async (fileId: string, targetLang: string = 'vi', accountId?: string): Promise<any> => {
+    const params: any = { target_language: targetLang };
+    if (accountId) params.account_id = accountId;
+    const res = await api.get(`/integrations/google/drive/files/${fileId}/existing-translation`, { params });
     return res.data;
   },
 

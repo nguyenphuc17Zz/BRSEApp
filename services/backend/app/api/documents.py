@@ -1,6 +1,8 @@
 import json
+import datetime
 from pathlib import Path
 from typing import List, Optional
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request, Body
 from fastapi.responses import FileResponse
 from sqlalchemy import select, func, or_, delete, text
@@ -83,8 +85,17 @@ async def upload_document(
     }
 
 @router.get("")
-async def list_documents(project_id: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+async def list_documents(
+    project_id: Optional[str] = None,
+    include_cloud: bool = False,
+    db: AsyncSession = Depends(get_db)
+):
     query = select(DocumentFile)
+    if not include_cloud:
+        # Default Document Repository view only displays locally uploaded formats
+        local_types = ["docx", "xlsx", "pptx", "pdf"]
+        query = query.where(DocumentFile.file_type.in_(local_types))
+
     if project_id and project_id not in ("all", "default-project", ""):
         query = query.where(
             or_(
@@ -192,6 +203,121 @@ async def get_document(document_id: str, db: AsyncSession = Depends(get_db)):
         "created_at": d.created_at.isoformat(),
         "active_job": job_data
     }
+
+class BulkDeleteRequest(BaseModel):
+    project_id: Optional[str] = None
+    file_type: Optional[str] = None
+    doc_ids: Optional[List[str]] = None
+
+async def _perform_bulk_delete(
+    db: AsyncSession,
+    project_id: Optional[str] = None,
+    file_type: Optional[str] = None,
+    doc_ids: Optional[List[str]] = None
+) -> dict:
+    stmt = select(DocumentFile)
+    if doc_ids and len(doc_ids) > 0:
+        valid_ids = [i.strip() for i in doc_ids if i and i.strip()]
+        if valid_ids:
+            stmt = stmt.where(DocumentFile.id.in_(valid_ids))
+    else:
+        if project_id and project_id.strip() and project_id.strip().lower() != "all":
+            stmt = stmt.where(DocumentFile.project_id == project_id.strip())
+        if file_type and file_type.strip() and file_type.strip().lower() != "all":
+            stmt = stmt.where(DocumentFile.file_type == file_type.strip().lower())
+
+    docs = (await db.execute(stmt)).scalars().all()
+    if not docs:
+        return {"message": "Không có tài liệu nào để xóa.", "deleted_count": 0}
+
+    from app.documents.storage import WORKING_DIR
+    from app.intelligence.models import ProjectDocumentChunk
+
+    deleted_count = 0
+    for d in docs:
+        document_id = d.id
+        # 1. Cancel running job and clean up disk files
+        try:
+            stmt_jobs = select(DocumentJob).where(DocumentJob.document_id == document_id)
+            jobs = (await db.execute(stmt_jobs)).scalars().all()
+            for j in jobs:
+                job_manager.cancel_job(j.id)
+                if j.output_path:
+                    try:
+                        op = Path(j.output_path)
+                        if op.exists():
+                            op.unlink()
+                    except Exception as op_err:
+                        logger.debug(f"Output file unlink notice: {op_err}")
+                try:
+                    for wp in WORKING_DIR.glob(f"job_{j.id}_working*"):
+                        if wp.exists():
+                            wp.unlink()
+                except Exception:
+                    pass
+        except Exception as job_clean_err:
+            logger.debug(f"Job disk files cleanup notice: {job_clean_err}")
+
+        # 2. Remove original file on disk
+        try:
+            if d.original_path:
+                p = Path(d.original_path)
+                if p.exists():
+                    p.unlink()
+        except Exception as orig_err:
+            logger.debug(f"Original file unlink notice: {orig_err}")
+
+        # 3. Clean up Project Document RAG chunks and FTS5 table
+        try:
+            await db.execute(
+                delete(ProjectDocumentChunk).where(
+                    or_(
+                        ProjectDocumentChunk.file_id == document_id,
+                        ProjectDocumentChunk.filename == d.filename
+                    )
+                )
+            )
+            await db.execute(
+                text("DELETE FROM fts_project_documents WHERE file_id = :fid OR filename = :fn"),
+                {"fid": document_id, "fn": d.filename}
+            )
+        except Exception as rag_err:
+            logger.debug(f"RAG cleanup notice for {d.filename}: {rag_err}")
+
+        await db.delete(d)
+        deleted_count += 1
+
+    await db.commit()
+    return {"message": f"Đã xóa thành công {deleted_count} tài liệu.", "deleted_count": deleted_count}
+
+@router.post("/bulk-delete")
+async def bulk_delete_documents(
+    payload: BulkDeleteRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """Deletes multiple documents specified by doc_ids, file_type, or project_id via JSON POST body."""
+    return await _perform_bulk_delete(
+        db=db,
+        project_id=payload.project_id,
+        file_type=payload.file_type,
+        doc_ids=payload.doc_ids
+    )
+
+@router.delete("/all")
+async def delete_all_documents(
+    project_id: Optional[str] = None,
+    file_type: Optional[str] = None,
+    doc_ids: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """Deletes documents matching query parameters: project_id, file_type, or doc_ids (comma-separated)."""
+    parsed_ids = [i.strip() for i in doc_ids.split(",") if i.strip()] if doc_ids else None
+    return await _perform_bulk_delete(
+        db=db,
+        project_id=project_id,
+        file_type=file_type,
+        doc_ids=parsed_ids
+    )
 
 @router.delete("/{document_id}")
 async def delete_document(document_id: str, db: AsyncSession = Depends(get_db)):
@@ -303,6 +429,8 @@ async def start_document_translation(
     selected_sheets = None
     translate_notes = True
     translate_images = True
+    translate_tab_titles = True
+    translate_sheet_names = True
     custom_output_dir = None
     custom_output_filename = None
 
@@ -327,6 +455,8 @@ async def start_document_translation(
         selected_sheets = body.get("selected_sheets", body.get("selected_units", None))
         translate_notes = bool(body.get("translate_notes", translate_notes))
         translate_images = bool(body.get("translate_images", False))
+        translate_tab_titles = bool(body.get("translate_tab_titles", True))
+        translate_sheet_names = bool(body.get("translate_sheet_names", True))
         ocr_mode = str(body.get("ocr_mode", "paddleocr")).strip().lower()
         if body.get("custom_output_dir"):
             custom_output_dir = str(body.get("custom_output_dir")).strip()
@@ -354,6 +484,10 @@ async def start_document_translation(
             translate_notes = str(form.get("translate_notes")).lower() in ("true", "1", "yes")
         if "translate_images" in form:
             translate_images = str(form.get("translate_images")).lower() in ("true", "1", "yes")
+        if "translate_tab_titles" in form:
+            translate_tab_titles = str(form.get("translate_tab_titles")).lower() in ("true", "1", "yes")
+        if "translate_sheet_names" in form:
+            translate_sheet_names = str(form.get("translate_sheet_names")).lower() in ("true", "1", "yes")
         ocr_mode = str(form.get("ocr_mode", "paddleocr")).strip().lower()
         if form.get("custom_output_dir"):
             custom_output_dir = str(form.get("custom_output_dir")).strip()
@@ -372,9 +506,12 @@ async def start_document_translation(
         "translate_notes": translate_notes,
         "translate_images": translate_images,
         "ocr_mode": ocr_mode,
+        "translate_tab_titles": translate_tab_titles,
+        "translate_sheet_names": translate_sheet_names,
         "custom_output_dir": custom_output_dir if custom_output_dir else None,
         "target_filename": custom_output_filename if custom_output_filename else None
     }
+
     if selected_sheets:
         if isinstance(selected_sheets, list):
             options["selected_sheets"] = selected_sheets
@@ -427,6 +564,17 @@ async def get_job_status(job_id: str, db: AsyncSession = Depends(get_db)):
     # Issue count
     issue_cnt = (await db.execute(select(DocumentIssue).where(DocumentIssue.job_id == job_id))).scalars().all()
 
+    total = job.total_segments or 0
+    completed = job.completed_segments or 0
+    failed = job.failed_segments or 0
+    pending = max(0, total - completed - failed)
+
+    elapsed = 0
+    if job.created_at:
+        elapsed = max(0, int((datetime.datetime.utcnow() - job.created_at).total_seconds()))
+
+    qa_pct = 100 if job.status in ("qa", "rendering", "completed") else (round((completed / max(1, total)) * 100) if total > 0 else 0)
+
     return {
         "id": job.id,
         "job_id": job.id,
@@ -435,11 +583,14 @@ async def get_job_status(job_id: str, db: AsyncSession = Depends(get_db)):
         "provider": job.provider,
         "model": job.model,
         "style": job.style,
-        "total_segments": job.total_segments,
-        "completed_segments": job.completed_segments,
-        "failed_segments": job.failed_segments,
+        "total_segments": total,
+        "completed_segments": completed,
+        "failed_segments": failed,
+        "pending_segments": pending,
         "progress_percent": job.progress_percent,
         "progress_pct": job.progress_percent,
+        "qa_pct": qa_pct,
+        "elapsed_seconds": elapsed,
         "current_stage": job.current_stage,
         "phase": job.current_stage,
         "output_filename": job.output_filename,
@@ -466,8 +617,15 @@ async def resume_job(job_id: str):
     return {"message": "Job resume requested."}
 
 @router.post("/jobs/{job_id}/cancel")
-async def cancel_job(job_id: str):
+async def cancel_job(job_id: str, db: AsyncSession = Depends(get_db)):
     job_manager.cancel_job(job_id)
+    # Ensure database record is updated to cancelled even if not in active memory
+    res = await db.execute(select(DocumentJob).where(DocumentJob.id == job_id))
+    job = res.scalar_one_or_none()
+    if job and job.status not in ("completed", "partially_completed"):
+        job.status = "cancelled"
+        job.current_stage = "Đã hủy bởi người dùng"
+        await db.commit()
     return {"message": "Job cancellation requested."}
 
 @router.post("/jobs/{job_id}/retry")
@@ -683,36 +841,83 @@ async def open_job_folder(job_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Could not open folder: {str(e)}")
 
 
+@router.get("/common-paths")
+async def get_common_paths():
+    """Returns dynamic standard user paths (Desktop, Downloads, Documents) on host OS."""
+    home = Path.home()
+    
+    desktop = home / "Desktop"
+    downloads = home / "Downloads"
+    documents = home / "Documents"
+    
+    # Handle OneDrive redirected standard folders if present
+    onedrive = home / "OneDrive"
+    if onedrive.exists():
+        if (onedrive / "Desktop").exists():
+            desktop = onedrive / "Desktop"
+        if (onedrive / "Documents").exists():
+            documents = onedrive / "Documents"
+    
+    return {
+        "desktop": str(desktop.resolve()) if desktop.exists() else str(home.resolve()),
+        "downloads": str(downloads.resolve()) if downloads.exists() else str(home.resolve()),
+        "documents": str(documents.resolve()) if documents.exists() else str(home.resolve()),
+        "default_output": "data/documents/output"
+    }
+
+
 @router.post("/browse-directory")
 async def browse_directory(body: Optional[dict] = Body(default={})):
-    """Opens a native OS folder browser dialog and returns the selected folder path."""
+    """Opens a native OS folder browser dialog (TopMost) and returns the selected folder path."""
     import platform
-    import subprocess
     import asyncio
 
     initial_dir = (body or {}).get("initial_dir", "") if isinstance(body, dict) else ""
+    valid_initial = initial_dir if (initial_dir and Path(initial_dir).exists()) else None
 
     def _open_dialog():
+        # 1. Primary: Use Python Tkinter (Fast, native Windows IFileDialog, TopMost)
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            root.focus_force()
+            selected = filedialog.askdirectory(
+                initialdir=valid_initial,
+                title="Chọn thư mục lưu file dịch (Save Location)",
+                parent=root
+            )
+            root.destroy()
+            if selected:
+                norm_path = str(Path(selected).resolve())
+                return {"success": True, "path": norm_path, "canceled": False}
+            return {"success": True, "path": "", "canceled": True}
+        except Exception as tk_err:
+            logger.warning(f"Tkinter folder dialog notice: {tk_err}, attempting PowerShell fallback...")
+
+        # 2. Fallback: PowerShell FolderBrowserDialog
         if platform.system() == "Windows":
-            escaped_init = initial_dir.replace("'", "''") if initial_dir else ""
-            ps_script = (
-                "Add-Type -AssemblyName System.Windows.Forms; "
-                "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog; "
-                "$dialog.Description = 'Chọn thư mục lưu file dịch'; "
-                "$dialog.ShowNewFolderButton = $true; "
-            )
-            if escaped_init:
-                ps_script += f"$dialog.SelectedPath = '{escaped_init}'; "
-            ps_script += (
-                "$form = New-Object System.Windows.Forms.Form; "
-                "$form.TopMost = $true; "
-                "$res = $dialog.ShowDialog($form); "
-                "if ($res -eq [System.Windows.Forms.DialogResult]::OK) { "
-                "    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
-                "    Write-Output $dialog.SelectedPath "
-                "}"
-            )
             try:
+                import subprocess
+                escaped_init = str(valid_initial).replace("'", "''") if valid_initial else ""
+                ps_script = (
+                    "Add-Type -AssemblyName System.Windows.Forms; "
+                    "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog; "
+                    "$dialog.Description = 'Chọn thư mục lưu file dịch'; "
+                    "$dialog.ShowNewFolderButton = $true; "
+                )
+                if escaped_init:
+                    ps_script += f"$dialog.SelectedPath = '{escaped_init}'; "
+                ps_script += (
+                    "$res = $dialog.ShowDialog(); "
+                    "if ($res -eq [System.Windows.Forms.DialogResult]::OK) { "
+                    "    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
+                    "    Write-Output $dialog.SelectedPath "
+                    "}"
+                )
                 proc = subprocess.run(
                     ["powershell.exe", "-NoProfile", "-STA", "-Command", ps_script],
                     capture_output=True,
@@ -722,13 +927,13 @@ async def browse_directory(body: Optional[dict] = Body(default={})):
                 )
                 selected = proc.stdout.strip()
                 if selected:
-                    return {"success": True, "path": selected, "canceled": False}
+                    return {"success": True, "path": str(Path(selected).resolve()), "canceled": False}
                 return {"success": True, "path": "", "canceled": True}
             except subprocess.TimeoutExpired:
-                return {"success": False, "path": "", "canceled": True, "error": "Dialog timed out"}
-            except Exception as e:
-                logger.error(f"Error opening Windows folder dialog: {e}")
-                return {"success": False, "path": "", "canceled": True, "error": str(e)}
+                return {"success": False, "path": "", "canceled": True, "error": "Hộp thoại chọn thư mục đã quá thời gian chờ (Timeout)."}
+            except Exception as ps_err:
+                logger.error(f"Error opening Windows folder dialog: {ps_err}")
+                return {"success": False, "path": "", "canceled": True, "error": str(ps_err)}
         else:
             return {"success": False, "path": "", "canceled": True, "error": "Native folder dialog is only supported on Windows host."}
 

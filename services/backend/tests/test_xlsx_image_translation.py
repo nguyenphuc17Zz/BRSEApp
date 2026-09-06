@@ -1,5 +1,6 @@
 import pytest
 import io
+import json
 import openpyxl
 from openpyxl.drawing.image import Image as OpenpyxlImage
 from PIL import Image, ImageDraw
@@ -187,4 +188,45 @@ async def test_xlsx_renderer_translates_formula_strings(sample_xlsx_with_image_a
     # Logical formula with translated strings
     expected_formula = '=IF(B4>1000000, "Cần phê duyệt", "Tự động phê duyệt")'
     assert ws["C4"].value == expected_formula
+
+
+@pytest.mark.asyncio
+async def test_xlsx_renderer_translates_sheet_names(sample_xlsx_with_image_and_formula, tmp_path):
+    from unittest.mock import MagicMock
+    output_path = tmp_path / "translated_sheets.xlsx"
+
+    fake_provider = AsyncMock()
+    fake_provider.generate.return_value = MagicMock(
+        text=json.dumps({"translations": [{"id": 0, "translated": "Báo giá"}]})
+    )
+
+    # 1. Enabled (default)
+    await XlsxRenderer.render(
+        working_path=sample_xlsx_with_image_and_formula,
+        output_path=output_path,
+        segments_by_loc={},
+        options={"translate_sheet_names": True, "translate_images": False},
+        provider=fake_provider
+    )
+    wb = openpyxl.load_workbook(str(output_path), data_only=False)
+    assert "Báo giá" in wb.sheetnames
+    assert "見積もり" not in wb.sheetnames
+    assert fake_provider.generate.call_count == 1
+
+    # 2. Disabled
+    fake_provider.reset_mock()
+    output_path_disabled = tmp_path / "translated_sheets_disabled.xlsx"
+    await XlsxRenderer.render(
+        working_path=sample_xlsx_with_image_and_formula,
+        output_path=output_path_disabled,
+        segments_by_loc={},
+        options={"translate_sheet_names": False, "translate_images": False},
+        provider=fake_provider
+    )
+    wb_disabled = openpyxl.load_workbook(str(output_path_disabled), data_only=False)
+    assert "見積もり" in wb_disabled.sheetnames
+    assert "Báo giá" not in wb_disabled.sheetnames
+    assert fake_provider.generate.call_count == 0
+
+
 

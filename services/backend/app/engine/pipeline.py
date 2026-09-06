@@ -41,7 +41,12 @@ def clean_json_response(raw_text: str) -> Dict[str, Any]:
         return {}
     text = raw_text.strip()
     # Strip <think>...</think> tags if model produced reasoning block
-    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    if "<think>" in text:
+        if "</think>" in text:
+            text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+        else:
+            # Model output was cut off inside the thinking block; no valid payload produced
+            return {}
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text)
         text = re.sub(r"\s*```$", "", text)

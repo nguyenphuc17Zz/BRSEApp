@@ -1,5 +1,6 @@
 import datetime
 import json
+import re
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Body, UploadFile, File, Form
 from fastapi.responses import RedirectResponse
@@ -45,13 +46,18 @@ class GoogleTranslationStartRequest(BaseModel):
     provider: str = "gemini"
     model: Optional[str] = "gemini-3.7-flash"
     selected_sheets: Optional[List[str]] = None
+    selected_tabs: Optional[List[str]] = None
     translate_notes: bool = True
     parent_folder_id: Optional[str] = None
     account_id: Optional[str] = None
     translate_images: bool = False
     ocr_mode: str = "paddleocr"
     convert_to_google_format: bool = True
+    translate_tab_titles: bool = True
+    translate_sheet_names: bool = True
     target_filename: Optional[str] = None
+    target_mode: str = "create" # "create" | "update"
+    target_file_id: Optional[str] = None
 
 class GoogleDocTranslateRequest(BaseModel):
     project_id: Optional[str] = None
@@ -60,6 +66,7 @@ class GoogleDocTranslateRequest(BaseModel):
     provider: str = "gemini"
     model: Optional[str] = None
     account_id: Optional[str] = None
+    selected_tabs: Optional[List[str]] = None
 
 class GoogleSheetTranslateRequest(BaseModel):
     project_id: Optional[str] = None
@@ -523,6 +530,23 @@ async def disconnect_google(account_id: Optional[str] = Query(None), db: AsyncSe
     await db.commit()
     return {"status": "disconnected"}
 
+@router.post("/accounts/{account_id}/refresh-token")
+async def force_refresh_google_token(account_id: str, db: AsyncSession = Depends(get_db)):
+    """Explicitly forces a fresh access token from Google OAuth refresh token."""
+    acc = await get_target_google_account(db, account_id)
+    if not acc.encrypted_refresh_token:
+        raise HTTPException(status_code=400, detail="Tài khoản không có refresh token để làm mới.")
+    try:
+        new_token = await GoogleWorkspaceClient.get_valid_access_token(db, acc.id, force_refresh=True)
+        return {
+            "status": "refreshed",
+            "account_id": acc.id,
+            "email": acc.email,
+            "token_preview": f"{new_token[:10]}..." if len(new_token) > 10 else "***"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Không thể làm mới token: {str(e)}")
+
 @router.get("/drive")
 async def list_drive_files(
     folder_id: Optional[str] = None,
@@ -539,12 +563,16 @@ async def list_drive_files(
         folder_id=folder_id,
         query=query,
         view_mode=view_mode,
-        is_mock=acc.is_mock
+        is_mock=acc.is_mock,
+        db=db,
+        account_id=acc.id
     )
     
     current_folder = None
     if folder_id:
-        current_folder = await GoogleDriveService.get_folder_info(token, folder_id, is_mock=acc.is_mock)
+        current_folder = await GoogleDriveService.get_folder_info(
+            token, folder_id, is_mock=acc.is_mock, db=db, account_id=acc.id
+        )
 
     return {
         "files": files,
@@ -553,6 +581,94 @@ async def list_drive_files(
         "account_email": acc.email,
         "view_mode": view_mode
     }
+
+@router.get("/drive/files/{file_id}/existing-translation")
+async def get_existing_translation_info(
+    file_id: str,
+    target_language: Optional[str] = None,
+    account_id: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """Checks if a Google Drive file has been translated before, returning the previous target file ID and details."""
+    from sqlalchemy import or_
+    file_cond = or_(
+        DocumentFile.original_path == file_id,
+        DocumentJob.output_path.like(f"%{file_id}%")
+    )
+
+    # 1. Fetch candidate jobs for this file
+    stmt = (
+        select(DocumentJob, DocumentFile)
+        .join(DocumentFile, DocumentJob.document_id == DocumentFile.id)
+        .where(
+            file_cond,
+            DocumentJob.status.in_(["completed", "partially_completed"])
+        )
+        .order_by(DocumentJob.created_at.desc())
+    )
+    res = await db.execute(stmt)
+    all_rows = res.all()
+
+    if not all_rows:
+        return {"found": False}
+
+    # Sort candidates so matching target_language comes first
+    if target_language and isinstance(target_language, str) and target_language.strip():
+        req_lang = target_language.strip().lower()
+        all_rows.sort(key=lambda r: 0 if (r[0].target_language or "").lower() == req_lang else 1)
+
+    for job, doc_file in all_rows:
+        target_file_id = None
+        if job.output_path:
+            match = re.search(r'(?:id=|\/d\/)([a-zA-Z0-9_-]{15,})', job.output_path)
+            if match:
+                target_file_id = match.group(1)
+
+        if not target_file_id:
+            try:
+                opts = json.loads(job.options_json or "{}")
+                target_file_id = opts.get("target_file_id")
+            except Exception:
+                pass
+
+        if not target_file_id:
+            continue
+
+        target_lang_str = (job.target_language or target_language or "VI").upper()
+        target_name = job.output_filename or f"{doc_file.filename}_{target_lang_str}"
+        is_trashed = False
+        try:
+            acc = await get_target_google_account(db, account_id or job.project_id)
+            token = await GoogleWorkspaceClient.get_valid_access_token(db, acc.id)
+            drive_meta = await GoogleDriveService.get_file_metadata(token, target_file_id, is_mock=acc.is_mock)
+            if not drive_meta:
+                # File permanently deleted or inaccessible
+                continue
+            if drive_meta.get("trashed") is True:
+                # User moved this translated file into Trash (thùng rác)
+                is_trashed = True
+                continue
+            if drive_meta.get("name"):
+                target_name = drive_meta.get("name")
+        except Exception as drive_err:
+            logger.debug(f"Notice verifying existing translation target {target_file_id}: {drive_err}")
+
+        if is_trashed:
+            continue
+
+        return {
+            "found": True,
+            "target_file_id": target_file_id,
+            "target_name": target_name,
+            "web_url": f"https://drive.google.com/open?id={target_file_id}",
+            "last_translated_at": job.updated_at.isoformat() if job.updated_at else job.created_at.isoformat(),
+            "job_id": job.id,
+            "source_language": job.source_language or "vi",
+            "target_language": job.target_language or "ja",
+            "completed_segments": job.completed_segments
+        }
+
+    return {"found": False}
 
 @router.get("/drive/folders/{folder_id}")
 async def get_drive_folder_info(
@@ -563,7 +679,7 @@ async def get_drive_folder_info(
     """Retrieves Google Drive folder metadata."""
     acc = await get_target_google_account(db, account_id)
     token = await GoogleWorkspaceClient.get_valid_access_token(db, acc.id)
-    info = await GoogleDriveService.get_folder_info(token, folder_id, is_mock=acc.is_mock)
+    info = await GoogleDriveService.get_folder_info(token, folder_id, is_mock=acc.is_mock, db=db, account_id=acc.id)
     return info
 
 @router.post("/drive/folders")
@@ -730,12 +846,17 @@ async def start_google_translation(
         "title": req.title,
         "account_id": acc.id,
         "selected_sheets": req.selected_sheets,
+        "selected_tabs": req.selected_tabs,
         "translate_notes": req.translate_notes,
         "parent_folder_id": req.parent_folder_id,
         "translate_images": req.translate_images,
         "ocr_mode": req.ocr_mode,
         "convert_to_google_format": req.convert_to_google_format,
-        "target_filename": req.target_filename.strip() if req.target_filename else None
+        "translate_tab_titles": req.translate_tab_titles,
+        "translate_sheet_names": req.translate_sheet_names,
+        "target_filename": req.target_filename.strip() if req.target_filename else None,
+        "target_mode": req.target_mode or "create",
+        "target_file_id": req.target_file_id.strip() if req.target_file_id else None
     }
 
     job = DocumentJob(
@@ -790,7 +911,8 @@ async def translate_google_doc(
         project_id=req.project_id,
         style=req.style,
         provider=req.provider,
-        model=req.model or "gemini-3.7-flash"
+        model=req.model or "gemini-3.7-flash",
+        selected_tabs=req.selected_tabs
     )
     return await start_google_translation(start_req, db)
 
@@ -861,15 +983,29 @@ async def get_google_job_progress(job_id: str, db: AsyncSession = Depends(get_db
     doc = (await db.execute(select(DocumentFile).where(DocumentFile.id == job.document_id))).scalar_one_or_none()
     issue_cnt = (await db.execute(select(func.count(DocumentIssue.id)).where(DocumentIssue.job_id == job.id))).scalar() or 0
 
+    total = job.total_segments or 0
+    completed = job.completed_segments or 0
+    failed = job.failed_segments or 0
+    pending = max(0, total - completed - failed)
+    elapsed = 0
+    if job.created_at:
+        elapsed = max(0, int((datetime.datetime.utcnow() - job.created_at).total_seconds()))
+
+    qa_pct = 100 if job.status in ("qa", "rendering", "completed") else (round((completed / max(1, total)) * 100) if total > 0 else 0)
+
     return {
         "job_id": job.id,
         "status": job.status,
         "filename": doc.filename if doc else "Google File",
         "file_type": doc.file_type if doc else "gdoc",
         "progress_percent": job.progress_percent,
-        "total_segments": job.total_segments,
-        "completed_segments": job.completed_segments,
-        "failed_segments": job.failed_segments,
+        "progress_pct": job.progress_percent,
+        "total_segments": total,
+        "completed_segments": completed,
+        "failed_segments": failed,
+        "pending_segments": pending,
+        "qa_pct": qa_pct,
+        "elapsed_seconds": elapsed,
         "current_stage": job.current_stage,
         "output_filename": job.output_filename,
         "output_path": job.output_path,
@@ -889,8 +1025,14 @@ async def resume_google_job(job_id: str):
     return {"message": "Google Job resume requested."}
 
 @router.post("/jobs/{job_id}/cancel")
-async def cancel_google_job(job_id: str):
+async def cancel_google_job(job_id: str, db: AsyncSession = Depends(get_db)):
     google_job_manager.cancel_job(job_id)
+    res = await db.execute(select(DocumentJob).where(DocumentJob.id == job_id))
+    job = res.scalar_one_or_none()
+    if job and job.status not in ("completed", "partially_completed"):
+        job.status = "cancelled"
+        job.current_stage = "Đã hủy bởi người dùng"
+        await db.commit()
     return {"message": "Google Job cancellation requested."}
 
 @router.post("/jobs/{job_id}/retry")

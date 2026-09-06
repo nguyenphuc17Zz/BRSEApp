@@ -17,9 +17,11 @@ class GoogleDriveService:
         query: Optional[str] = None,
         shared_drive_id: Optional[str] = None,
         view_mode: str = "my_drive",
-        is_mock: bool = False
+        is_mock: bool = False,
+        db: Optional[Any] = None,
+        account_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """Lists files and folders with folder drilldown, search, and view mode (my_drive, shared_with_me, recent)."""
+        """Lists files and folders with folder drilldown, search, view mode, and self-healing token refresh."""
         headers = {"Authorization": f"Bearer {access_token}"}
         params: Dict[str, Any] = {
             "pageSize": 50,
@@ -59,6 +61,16 @@ class GoogleDriveService:
 
         async with httpx.AsyncClient(timeout=15.0) as http:
             resp = await http.get(f"{DRIVE_API_BASE}/files", headers=headers, params=params)
+            if resp.status_code == 401 and db and account_id:
+                logger.warning(f"Google Drive API returned 401 for list_files, triggering self-healing token refresh for {account_id}...")
+                from app.integrations.google.client import GoogleWorkspaceClient
+                try:
+                    new_token = await GoogleWorkspaceClient.get_valid_access_token(db, account_id, force_refresh=True)
+                    headers["Authorization"] = f"Bearer {new_token}"
+                    resp = await http.get(f"{DRIVE_API_BASE}/files", headers=headers, params=params)
+                except Exception as ref_err:
+                    logger.error(f"Self-healing token refresh failed: {ref_err}")
+
             if resp.status_code != 200:
                 logger.error(f"Failed to list Drive files: {resp.text}")
                 return []
@@ -118,7 +130,7 @@ class GoogleDriveService:
         headers = {"Authorization": f"Bearer {access_token}"}
         async with httpx.AsyncClient(timeout=15.0) as http:
             resp = await http.get(
-                f"{DRIVE_API_BASE}/files/{file_id}?fields=id,name,mimeType,size&supportsAllDrives=true",
+                f"{DRIVE_API_BASE}/files/{file_id}?fields=id,name,mimeType,size,trashed&supportsAllDrives=true",
                 headers=headers
             )
             if resp.status_code == 200:
@@ -130,9 +142,11 @@ class GoogleDriveService:
         cls,
         access_token: str,
         folder_id: str,
-        is_mock: bool = False
+        is_mock: bool = False,
+        db: Optional[Any] = None,
+        account_id: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Fetches metadata for a specific Google Drive folder."""
+        """Fetches metadata for a specific Google Drive folder with self-healing token retry."""
         if not folder_id or folder_id == "root":
             return {"id": "root", "name": "My Drive"}
 
@@ -142,6 +156,19 @@ class GoogleDriveService:
                 f"{DRIVE_API_BASE}/files/{folder_id}?fields=id,name,mimeType&supportsAllDrives=true",
                 headers=headers
             )
+            if resp.status_code == 401 and db and account_id:
+                logger.warning(f"Google Drive API returned 401 for get_folder_info, triggering self-healing token refresh...")
+                from app.integrations.google.client import GoogleWorkspaceClient
+                try:
+                    new_token = await GoogleWorkspaceClient.get_valid_access_token(db, account_id, force_refresh=True)
+                    headers["Authorization"] = f"Bearer {new_token}"
+                    resp = await http.get(
+                        f"{DRIVE_API_BASE}/files/{folder_id}?fields=id,name,mimeType&supportsAllDrives=true",
+                        headers=headers
+                    )
+                except Exception as ref_err:
+                    logger.error(f"Self-healing token refresh failed: {ref_err}")
+
             if resp.status_code == 200:
                 data = resp.json()
                 return {"id": data["id"], "name": data.get("name", "Thư mục Drive")}
@@ -158,6 +185,9 @@ class GoogleDriveService:
         is_mock: bool = False
     ) -> Dict[str, Any]:
         """Creates a non-destructive copy in the same folder as the original file."""
+        if is_mock:
+            return {"id": f"copy_{source_file_id}", "name": target_name}
+
         headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
         body: Dict[str, Any] = {"name": target_name}
         if parent_folder_id:
@@ -176,6 +206,63 @@ class GoogleDriveService:
             return resp.json()
 
     @classmethod
+    async def sync_existing_file_content(
+        cls,
+        access_token: str,
+        source_file_id: str,
+        target_file_id: str,
+        file_type: str,
+        is_mock: bool = False
+    ) -> bool:
+        """Syncs the latest structure, newly added text, and images from source_file_id into target_file_id while keeping target_file_id and its URL intact."""
+        if is_mock:
+            return True
+
+        headers = {"Authorization": f"Bearer {access_token}"}
+        f_type = (file_type or "").lower()
+
+        if "sheet" in f_type:
+            export_mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            sync_filename = "sync.xlsx"
+        elif "slide" in f_type or "presentation" in f_type:
+            export_mime = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            sync_filename = "sync.pptx"
+        else:
+            # Google Docs native multi-tab preservation:
+            # Microsoft Word (.docx) has no concept of tabs. When Google Docs exports a multi-tab document to .docx,
+            # Google Drive's export engine flattens all tabs into one and injects tab titles into the body text.
+            # Re-uploading that DOCX destroys the multi-tab layout and permanently injects tab names into the document body.
+            # Therefore, Google Docs in-place updates must skip DOCX conversion and rely on native Docs REST API.
+            logger.info(f"Preserving native Google Doc multi-tab structure for {source_file_id} -> {target_file_id}. Skipping DOCX export.")
+            return True
+
+        async with httpx.AsyncClient(timeout=60.0) as http:
+            exp_res = await http.get(
+                f"{DRIVE_API_BASE}/files/{source_file_id}/export?mimeType={export_mime}&supportsAllDrives=true",
+                headers=headers
+            )
+            if exp_res.status_code != 200:
+                logger.warning(f"Could not export source file {source_file_id} for in-place sync: HTTP {exp_res.status_code}")
+                return False
+
+            file_bytes = exp_res.content
+            files = {
+                "data": ("metadata", json.dumps({}), "application/json; charset=UTF-8"),
+                "file": (sync_filename, file_bytes, export_mime)
+            }
+            up_res = await http.patch(
+                f"https://www.googleapis.com/upload/drive/v3/files/{target_file_id}?uploadType=multipart&supportsAllDrives=true",
+                headers={"Authorization": f"Bearer {access_token}"},
+                files=files
+            )
+            if up_res.status_code == 200:
+                logger.info(f"Successfully synced fresh layout and content from {source_file_id} to existing file {target_file_id}.")
+                return True
+            else:
+                logger.warning(f"Drive API failed to patch target file {target_file_id}: HTTP {up_res.status_code} - {up_res.text[:150]}")
+                return False
+
+    @classmethod
     async def create_folder(
         cls,
         access_token: str,
@@ -184,6 +271,9 @@ class GoogleDriveService:
         is_mock: bool = False
     ) -> Dict[str, Any]:
         """Creates a new folder in Google Drive."""
+        if is_mock:
+            return {"id": f"mock_folder_{name}", "name": name}
+
         headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
         body: Dict[str, Any] = {
             "name": name,

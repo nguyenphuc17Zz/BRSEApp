@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     # Defaults
     DEFAULT_PROVIDER: str = "groq"
     DEFAULT_GEMINI_MODEL: str = "gemini-3.7-flash"
-    DEFAULT_GROQ_MODEL: str = "qwen/qwen3.8-27b"
+    DEFAULT_GROQ_MODEL: str = "openai/gpt-oss-120b"
     
     # Logging
     LOG_LEVEL: str = "INFO"

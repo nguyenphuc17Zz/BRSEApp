@@ -25,7 +25,8 @@ import {
   ArrowRight,
   Languages,
   ImageIcon,
-  Edit3
+  Edit3,
+  X
 } from 'lucide-react';
 import { apiClient } from '../api/client';
 import { Project, ProviderInfo, DocumentItem, DocumentJob, DocumentSegment, DocumentIssue } from '../types';
@@ -46,10 +47,35 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
   const confirm = useConfirm();
 
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
+  const [selectedFormatFilter, setSelectedFormatFilter] = useState<'all' | 'docx' | 'xlsx' | 'pptx' | 'pdf'>('all');
+  const [docSearchQuery, setDocSearchQuery] = useState('');
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+
+  const formatCounts = {
+    all: documents.length,
+    docx: documents.filter(d => d.file_type === 'docx').length,
+    xlsx: documents.filter(d => d.file_type === 'xlsx').length,
+    pptx: documents.filter(d => d.file_type === 'pptx').length,
+    pdf: documents.filter(d => d.file_type === 'pdf').length,
+  };
+
+  const isFiltering = selectedFormatFilter !== 'all' || docSearchQuery.trim().length > 0;
+
+  const filteredDocuments = documents.filter(doc => {
+    if (selectedFormatFilter !== 'all' && doc.file_type !== selectedFormatFilter) {
+      return false;
+    }
+    if (docSearchQuery.trim()) {
+      const q = docSearchQuery.trim().toLowerCase();
+      if (!doc.filename.toLowerCase().includes(q)) {
+        return false;
+      }
+    }
+    return true;
+  });
 
   // Selected file for translation configuration modal
   const [configDoc, setConfigDoc] = useState<DocumentItem | null>(null);
@@ -75,12 +101,20 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
   const [useOcr, setUseOcr] = useState(true);
   const [translateImages, setTranslateImages] = useState(true);
   const [ocrEngine, setOcrEngine] = useState<'paddleocr' | 'gemini_vision'>('paddleocr');
+  const [translateSheetNames, setTranslateSheetNames] = useState<boolean>(true);
+  const [translateTabTitles, setTranslateTabTitles] = useState<boolean>(true);
   const [selectedSheets, setSelectedSheets] = useState<string[]>([]);
   const STORAGE_KEY = 'at_last_output_dir';
   const [customOutputDir, setCustomOutputDir] = useState<string>(
     () => localStorage.getItem(STORAGE_KEY) || ''
   );
   const [isBrowsingFolder, setIsBrowsingFolder] = useState<boolean>(false);
+  const [commonPaths, setCommonPaths] = useState<{
+    desktop: string;
+    downloads: string;
+    documents: string;
+    default_output: string;
+  } | null>(null);
 
   // Live Tracking Job
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -102,7 +136,17 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
   useEffect(() => {
     loadDocuments();
     loadProviders();
+    loadCommonPaths();
   }, [activeProject]);
+
+  const loadCommonPaths = async () => {
+    try {
+      const paths = await apiClient.getCommonPaths();
+      setCommonPaths(paths);
+    } catch (e) {
+      console.warn('Could not load common system paths:', e);
+    }
+  };
 
   useEffect(() => {
     if (activeProject) {
@@ -141,6 +185,9 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
       const runningDoc = data.find(d => d.active_job && ['queued', 'analyzing', 'segmenting', 'translating', 'qa', 'rendering'].includes(d.active_job.status));
       if (runningDoc && runningDoc.active_job) {
         setActiveJobId(runningDoc.active_job.id);
+      } else {
+        setActiveJobId(null);
+        setJobProgress(null);
       }
     } catch (e) {
       console.error('Failed to load documents:', e);
@@ -209,6 +256,63 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
     }
   };
 
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
+
+  const handleDeleteAll = async () => {
+    const targetDocs = isFiltering ? filteredDocuments : documents;
+    if (targetDocs.length === 0) return;
+
+    let targetDescription = '';
+    if (isFiltering) {
+      const formatLabelMap: Record<string, string> = {
+        docx: 'Word (.docx)',
+        xlsx: 'Excel (.xlsx)',
+        pptx: 'PowerPoint (.pptx)',
+        pdf: 'PDF (.pdf)',
+      };
+      const parts: string[] = [];
+      if (selectedFormatFilter !== 'all') {
+        parts.push(`định dạng ${formatLabelMap[selectedFormatFilter] || selectedFormatFilter.toUpperCase()}`);
+      }
+      if (docSearchQuery.trim()) {
+        parts.push(`từ khóa "${docSearchQuery.trim()}"`);
+      }
+      targetDescription = `đang lọc (${parts.join(', ')})`;
+    } else {
+      targetDescription = activeProject ? `thuộc dự án "${activeProject.name}"` : 'trong toàn bộ kho hệ thống';
+    }
+
+    const ok = await confirm({
+      title: isFiltering ? `Xóa ${targetDocs.length} tài liệu đang lọc` : 'Xóa tất cả tài liệu',
+      message: `Bạn có chắc chắn muốn xóa ${targetDocs.length} tài liệu ${targetDescription}? Tất cả file gốc, bản dịch, các tác vụ và phân đoạn liên quan sẽ bị xóa vĩnh viễn và không thể hoàn tác.`,
+      isDestructive: true,
+      confirmText: isFiltering ? `Xóa đã lọc (${targetDocs.length})` : `Xóa tất cả (${targetDocs.length})`,
+      cancelText: 'Hủy'
+    });
+    if (!ok) return;
+
+    setIsDeletingAll(true);
+    try {
+      const targetIds = targetDocs.map(d => d.id);
+      const res = await apiClient.deleteAllDocuments(activeProject?.id, undefined, targetIds);
+
+      setDocuments(prev => prev.filter(d => !targetDocs.some(td => td.id === d.id)));
+      if (configDoc && targetDocs.some(d => d.id === configDoc.id)) setConfigDoc(null);
+      if (reviewDoc && targetDocs.some(d => d.id === reviewDoc.id)) setReviewDoc(null);
+      if (activeJobId && targetDocs.some(d => d.active_job?.id === activeJobId)) {
+        setActiveJobId(null);
+        setJobProgress(null);
+      }
+      toast.success(res?.message || `Đã xóa thành công ${res?.deleted_count || targetDocs.length} tài liệu`);
+    } catch (err: any) {
+      console.error('Failed to delete documents:', err);
+      toast.error(err?.response?.data?.detail || 'Không thể xóa tài liệu');
+    } finally {
+      setIsDeletingAll(false);
+      await loadDocuments();
+    }
+  };
+
   const openTranslateConfig = (doc: DocumentItem) => {
     setConfigDoc(doc);
     setSelectedProjectId(doc.project_id || activeProject?.id || '');
@@ -271,6 +375,8 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
         use_ocr: useOcr,
         translate_images: translateImages,
         ocr_mode: ocrEngine,
+        translate_sheet_names: translateSheetNames,
+        translate_tab_titles: translateTabTitles,
         selected_units: selectedSheets.length > 0 ? selectedSheets : null,
         custom_output_dir: customOutputDir.trim() || undefined,
         target_filename: targetFilename.trim() || undefined
@@ -309,9 +415,14 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
     });
     if (!ok) return;
 
-    await apiClient.cancelJob(activeJobId);
+    const targetJobId = activeJobId;
     setActiveJobId(null);
     setJobProgress(null);
+    try {
+      await apiClient.cancelJob(targetJobId);
+    } catch (err) {
+      console.warn('Cancel job error:', err);
+    }
     await loadDocuments();
     toast.info('Đã hủy tiến trình dịch');
   };
@@ -628,23 +739,23 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
               <div>
                 <span className="text-slate-500 block text-[10px] uppercase font-semibold">Segments Progress</span>
                 <span className="text-white font-mono font-medium">
-                  {jobProgress.completed_segments} / {jobProgress.total_segments} ({jobProgress.progress_pct}%)
+                  {jobProgress.completed_segments ?? 0} / {jobProgress.total_segments ?? 0} ({jobProgress.progress_pct ?? jobProgress.progress_percent ?? 0}%)
                 </span>
               </div>
               <div>
                 <span className="text-slate-500 block text-[10px] uppercase font-semibold">QA Validation</span>
-                <span className="text-emerald-400 font-mono font-medium">{jobProgress.qa_pct}% Checked</span>
+                <span className="text-emerald-400 font-mono font-medium">{jobProgress.qa_pct ?? 0}% Checked</span>
               </div>
               <div>
                 <span className="text-slate-500 block text-[10px] uppercase font-semibold">Pending / Failed</span>
                 <span className="text-slate-300 font-mono font-medium">
-                  {jobProgress.pending_segments} pending · <span className={jobProgress.failed_segments > 0 ? "text-rose-400" : "text-slate-400"}>{jobProgress.failed_segments} failed</span>
+                  {jobProgress.pending_segments ?? Math.max(0, (jobProgress.total_segments || 0) - (jobProgress.completed_segments || 0) - (jobProgress.failed_segments || 0))} pending · <span className={(jobProgress.failed_segments || 0) > 0 ? "text-rose-400" : "text-slate-400"}>{jobProgress.failed_segments ?? 0} failed</span>
                 </span>
               </div>
               <div>
                 <span className="text-slate-500 block text-[10px] uppercase font-semibold">Elapsed Time</span>
                 <span className="text-slate-400 font-mono font-medium flex items-center gap-1">
-                  <Clock className="w-3 h-3" /> {jobProgress.elapsed_seconds}s
+                  <Clock className="w-3 h-3" /> {jobProgress.elapsed_seconds ?? 0}s
                 </span>
               </div>
             </div>
@@ -678,16 +789,107 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
           <div className="px-5 py-3 border-b border-slate-800 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                Document Repository ({documents.length})
+                Document Repository {isFiltering ? `(${filteredDocuments.length}/${documents.length})` : `(${documents.length})`}
               </h2>
+              {isFiltering && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/20 font-medium">
+                  Đang lọc
+                </span>
+              )}
             </div>
-            <button
-              onClick={loadDocuments}
-              className="p-1 rounded text-slate-400 hover:text-white transition-colors"
-              title="Refresh document list"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-            </button>
+            <div className="flex items-center gap-2">
+              {(isFiltering ? filteredDocuments.length > 0 : documents.length > 0) && (
+                <button
+                  type="button"
+                  onClick={handleDeleteAll}
+                  disabled={isDeletingAll}
+                  className="px-2.5 py-1 rounded-md bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                  title={isFiltering ? 'Xóa các tài liệu đang lọc' : 'Xóa tất cả tài liệu'}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>
+                    {isDeletingAll
+                      ? 'Đang xóa...'
+                      : isFiltering
+                      ? `Xóa đã lọc (${filteredDocuments.length})`
+                      : 'Xóa tất cả'}
+                  </span>
+                </button>
+              )}
+              <button
+                onClick={loadDocuments}
+                className="p-1 rounded text-slate-400 hover:text-white transition-colors"
+                title="Refresh document list"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+          </div>
+
+          {/* Sub-Header Toolbar: Format Classification Tabs & Search Input */}
+          <div className="px-5 py-2.5 bg-slate-900/80 border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
+            {/* Format Filter Tabs */}
+            <div className="flex items-center gap-1 overflow-x-auto py-0.5 scrollbar-none">
+              {(
+                [
+                  { key: 'all', label: 'Tất cả', icon: null },
+                  { key: 'docx', label: 'Word', icon: <FileFormatIcon type="doc" size="xs" /> },
+                  { key: 'xlsx', label: 'Excel', icon: <FileFormatIcon type="sheet" size="xs" /> },
+                  { key: 'pptx', label: 'PowerPoint', icon: <FileFormatIcon type="slide" size="xs" /> },
+                  { key: 'pdf', label: 'PDF', icon: <FileFormatIcon type="pdf" size="xs" /> },
+                ] as const
+              ).map(tab => {
+                const count = formatCounts[tab.key];
+                const isActive = selectedFormatFilter === tab.key;
+
+                return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setSelectedFormatFilter(tab.key)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all ${
+                      isActive
+                        ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40 shadow-sm shadow-sky-950'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent'
+                    }`}
+                  >
+                    {tab.icon}
+                    <span>{tab.label}</span>
+                    <span
+                      className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono leading-none ${
+                        isActive
+                          ? 'bg-sky-500/30 text-sky-200'
+                          : 'bg-slate-800 text-slate-400'
+                      }`}
+                    >
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Search Input Box */}
+            <div className="relative flex-1 sm:max-w-xs min-w-[200px]">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={docSearchQuery}
+                onChange={e => setDocSearchQuery(e.target.value)}
+                placeholder="Tìm kiếm theo tên tài liệu..."
+                className="w-full pl-8 pr-7 py-1 rounded-lg bg-slate-800/80 border border-slate-700/80 focus:border-sky-500 focus:outline-none text-xs text-slate-200 placeholder-slate-500 transition-colors"
+              />
+              {docSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setDocSearchQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-0.5"
+                  title="Xóa tìm kiếm"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
           </div>
 
           {isLoading ? (
@@ -696,9 +898,26 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
             <div className="p-12 text-center text-slate-500 text-xs">
               No documents uploaded yet. Upload a DOCX, XLSX, PPTX, or PDF to begin.
             </div>
+          ) : filteredDocuments.length === 0 ? (
+            <div className="p-10 text-center space-y-2.5">
+              <Search className="w-8 h-8 text-slate-600 mx-auto" />
+              <p className="text-slate-400 text-xs font-medium">
+                Không tìm thấy tài liệu nào phù hợp với bộ lọc hiện tại.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedFormatFilter('all');
+                  setDocSearchQuery('');
+                }}
+                className="px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-sky-400 text-xs font-medium border border-slate-700 transition-colors"
+              >
+                Đặt lại bộ lọc
+              </button>
+            </div>
           ) : (
             <div className="divide-y divide-slate-800/80">
-              {documents.map(doc => {
+              {filteredDocuments.map(doc => {
                 const job = doc.active_job;
                 const hasOutput = job && ['completed', 'partially_completed'].includes(job.status);
 
@@ -1063,6 +1282,48 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
                 </div>
               )}
 
+              {configDoc.file_type === 'xlsx' && (
+                <div className="p-3 bg-slate-850 rounded-lg border border-slate-700/80">
+                  <label className="flex items-start gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={translateSheetNames}
+                      onChange={(e) => setTranslateSheetNames(e.target.checked)}
+                      className="mt-0.5 rounded border-slate-700 text-emerald-500 focus:ring-emerald-400"
+                    />
+                    <div>
+                      <span className="text-slate-200 font-medium text-xs">
+                        Dịch tên các Trang tính / Sheet (Translate Sheet Names)
+                      </span>
+                      <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+                        Tự động dịch tên các sheet/trang tính trên thanh tab của bảng tính sang ngôn ngữ đích. Nếu bỏ chọn, giữ nguyên tên sheet gốc.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              )}
+
+              {configDoc.file_type === 'docx' && (
+                <div className="p-3 bg-slate-850 rounded-lg border border-slate-700/80">
+                  <label className="flex items-start gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={translateTabTitles}
+                      onChange={(e) => setTranslateTabTitles(e.target.checked)}
+                      className="mt-0.5 rounded border-slate-700 text-sky-500 focus:ring-sky-400"
+                    />
+                    <div>
+                      <span className="text-slate-200 font-medium text-xs">
+                        Dịch tiêu đề các Thẻ tài liệu (Translate Tab Titles)
+                      </span>
+                      <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+                        Tự động dịch tên các thẻ trên thanh tab bar sang ngôn ngữ đích. Nếu bỏ chọn, giữ nguyên tên thẻ gốc.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              )}
+
               {configDoc.file_type === 'pptx' && (
                 <div className="p-3 bg-slate-850 rounded-lg border border-slate-700/80">
                   <label className="flex items-center gap-2 cursor-pointer">
@@ -1172,7 +1433,7 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
                     <span>{isBrowsingFolder ? 'Đang chọn...' : 'Chọn thư mục...'}</span>
                   </button>
                 </div>
-                <div className="flex items-center gap-1.5 pt-0.5">
+                <div className="flex items-center gap-1.5 pt-0.5 flex-wrap">
                   <span className="text-[10px] text-slate-500">Gợi ý nhanh:</span>
                   <button
                     type="button"
@@ -1180,23 +1441,46 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
                     className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
                       !customOutputDir ? 'bg-sky-600/30 text-sky-300 border-sky-500/40' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-300'
                     }`}
+                    title="Lưu vào thư mục mặc định của dự án (data/documents/output)"
                   >
                     Mặc định
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => updateOutputDir('C:\\Users\\defaultuser0\\Downloads')}
-                    className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 hover:text-slate-300 transition-colors"
-                  >
-                    Downloads
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => updateOutputDir('C:\\Users\\defaultuser0\\Desktop')}
-                    className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 hover:text-slate-300 transition-colors"
-                  >
-                    Desktop
-                  </button>
+                  {commonPaths?.desktop && (
+                    <button
+                      type="button"
+                      onClick={() => updateOutputDir(commonPaths.desktop)}
+                      className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
+                        customOutputDir === commonPaths.desktop ? 'bg-sky-600/30 text-sky-300 border-sky-500/40' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-300'
+                      }`}
+                      title={commonPaths.desktop}
+                    >
+                      Desktop
+                    </button>
+                  )}
+                  {commonPaths?.downloads && (
+                    <button
+                      type="button"
+                      onClick={() => updateOutputDir(commonPaths.downloads)}
+                      className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
+                        customOutputDir === commonPaths.downloads ? 'bg-sky-600/30 text-sky-300 border-sky-500/40' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-300'
+                      }`}
+                      title={commonPaths.downloads}
+                    >
+                      Downloads
+                    </button>
+                  )}
+                  {commonPaths?.documents && (
+                    <button
+                      type="button"
+                      onClick={() => updateOutputDir(commonPaths.documents)}
+                      className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
+                        customOutputDir === commonPaths.documents ? 'bg-sky-600/30 text-sky-300 border-sky-500/40' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-300'
+                      }`}
+                      title={commonPaths.documents}
+                    >
+                      Documents
+                    </button>
+                  )}
                 </div>
               </div>
 

@@ -5,6 +5,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.logging import logger
 from app.core.security import encrypt_credential, decrypt_credential
 from app.integrations.models import IntegrationAccount
@@ -108,44 +109,70 @@ class GoogleWorkspaceClient:
             return resp.json()
 
     @classmethod
-    async def get_valid_access_token(cls, db: AsyncSession, account_id: str, client_id: str = "", client_secret: str = "") -> str:
-        """Retrieves and automatically refreshes access token if expired."""
+    async def get_valid_access_token(
+        cls,
+        db: AsyncSession,
+        account_id: str,
+        client_id: str = "",
+        client_secret: str = "",
+        force_refresh: bool = False
+    ) -> str:
+        """Retrieves and automatically refreshes access token if expired or force_refresh is requested."""
         account = (await db.execute(select(IntegrationAccount).where(IntegrationAccount.id == account_id))).scalar_one_or_none()
         if not account:
             raise ValueError("Google integration account not found.")
 
+        # In mock accounts, return decrypted token directly
+        if account.is_mock:
+            return decrypt_credential(account.encrypted_access_token)
+
         token = decrypt_credential(account.encrypted_access_token)
         now = datetime.datetime.utcnow()
 
-        if account.token_expiry and account.token_expiry > now + datetime.timedelta(minutes=5):
+        # Token still valid and not forcing refresh
+        if not force_refresh and account.token_expiry and account.token_expiry > now + datetime.timedelta(minutes=5):
             return token
 
-        # Token expired -> Refresh
+        # If no refresh token available, return existing token (best effort)
         if not account.encrypted_refresh_token:
-            return token # Best effort
+            return token
 
         refresh_token = decrypt_credential(account.encrypted_refresh_token)
-        if not client_id or not client_secret:
+        cid = (client_id or settings.GOOGLE_CLIENT_ID or "").strip()
+        csec = (client_secret or settings.GOOGLE_CLIENT_SECRET or "").strip()
+        if not cid or not csec:
+            logger.warning(f"Cannot refresh Google access token for {account.email or account_id}: missing client_id/secret.")
             return token
 
-        async with httpx.AsyncClient(timeout=15.0) as http:
-            resp = await http.post(
-                GOOGLE_TOKEN_URL,
-                data={
-                    "client_id": client_id,
-                    "client_secret": client_secret,
-                    "refresh_token": refresh_token,
-                    "grant_type": "refresh_token"
-                }
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                new_token = data.get("access_token")
-                account.encrypted_access_token = encrypt_credential(new_token)
-                expires_in = data.get("expires_in", 3600)
-                account.token_expiry = now + datetime.timedelta(seconds=expires_in)
-                await db.commit()
-                return new_token
-            else:
-                logger.warning(f"Failed to refresh Google token: {resp.text}")
-                return token
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as http:
+                resp = await http.post(
+                    GOOGLE_TOKEN_URL,
+                    data={
+                        "client_id": cid,
+                        "client_secret": csec,
+                        "refresh_token": refresh_token,
+                        "grant_type": "refresh_token"
+                    }
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    new_token = data.get("access_token")
+                    if new_token:
+                        account.encrypted_access_token = encrypt_credential(new_token)
+                        expires_in = data.get("expires_in", 3600)
+                        account.token_expiry = now + datetime.timedelta(seconds=expires_in)
+                        account.last_sync_at = now
+                        account.last_error = None
+                        await db.commit()
+                        logger.info(f"Successfully auto-refreshed Google OAuth token for {account.email or account_id}")
+                        return new_token
+                else:
+                    err_msg = f"Failed to refresh Google token: {resp.text}"
+                    logger.warning(err_msg)
+                    account.last_error = err_msg
+                    await db.commit()
+        except Exception as e:
+            logger.error(f"Error during Google OAuth token refresh: {e}")
+
+        return token

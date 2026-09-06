@@ -259,6 +259,12 @@ class JobManager:
 
         except asyncio.CancelledError:
             logger.info(f"Job {job_id} cancelled.")
+            async with async_session_maker() as db:
+                job = (await db.execute(select(DocumentJob).where(DocumentJob.id == job_id))).scalar_one_or_none()
+                if job and job.status not in ("completed", "partially_completed"):
+                    job.status = "cancelled"
+                    job.current_stage = "Đã hủy bởi người dùng"
+                    await db.commit()
         except Exception as e:
             logger.error(f"Job {job_id} failed: {e}", exc_info=True)
             async with async_session_maker() as db:
@@ -341,16 +347,50 @@ Return JSON matching this exact structure:
                 )
                 parsed = clean_json_response(resp_data.text)
                 trans_list = parsed.get("translations", [])
-                trans_map = {item["id"]: item.get("translated", "") for item in trans_list if "id" in item}
+                if not trans_list:
+                    raise RuntimeError(f"AI returned empty translation list for batch. Output snippet: {resp_data.text[:120]}")
+
+                trans_map = {}
+                for item in trans_list:
+                    if "id" in item:
+                        raw_id = item["id"]
+                        val = item.get("translated", "")
+                        trans_map[raw_id] = val
+                        try:
+                            trans_map[int(raw_id)] = val
+                            trans_map[str(raw_id)] = val
+                        except (ValueError, TypeError):
+                            pass
+
+                # Verify that at least one segment ID from to_translate was actually translated
+                has_any_match = any(
+                    s.segment_index in trans_map or str(s.segment_index) in trans_map
+                    for s in to_translate
+                )
+                if not has_any_match:
+                    raise RuntimeError("AI translation response did not match any segment IDs in current batch.")
 
                 for seg in to_translate:
-                    translated_raw = trans_map.get(seg.segment_index, seg.source_text)
+                    translated_raw = trans_map.get(seg.segment_index)
+                    if translated_raw is None:
+                        translated_raw = trans_map.get(str(seg.segment_index))
+
                     token_map = json.loads(seg.protected_tokens_json or "{}")
-                    # Restore protected tokens
-                    restored_text, missing = TokenProtector.restore_tokens(translated_raw, token_map)
-                    seg.translated_text = restored_text
-                    seg.status = "translated"
-                    translation_cache[seg.source_text] = restored_text
+
+                    if translated_raw is not None and str(translated_raw).strip():
+                        # Restore protected tokens
+                        restored_text, missing = TokenProtector.restore_tokens(translated_raw, token_map)
+                        seg.translated_text = restored_text
+                        seg.status = "translated"
+                        # Only cache if actually translated (prevent caching untranslated source text)
+                        if restored_text.strip() != seg.source_text.strip():
+                            translation_cache[seg.source_text] = restored_text
+                    else:
+                        # Mark this omitted segment as failed, keeping source text without polluting cache
+                        restored_text, _ = TokenProtector.restore_tokens(seg.source_text, token_map)
+                        seg.translated_text = restored_text
+                        seg.status = "failed"
+                        seg.error_message = "Segment omitted by AI translation model."
 
                 last_batch_err = None
                 break

@@ -11,7 +11,7 @@ from app.providers.base import AIProvider, ProviderResponseData
 class GroqProvider(AIProvider):
     """Groq Cloud AI Provider Adapter using OpenAI-compatible REST API."""
 
-    def __init__(self, api_key: str, default_model: str = "qwen/qwen3.6-27b"):
+    def __init__(self, api_key: str, default_model: str = "openai/gpt-oss-120b"):
         super().__init__(name="groq", api_key=api_key, default_model=default_model)
         self.base_url = "https://api.groq.com/openai/v1"
 
@@ -26,9 +26,9 @@ class GroqProvider(AIProvider):
         max_tokens: Optional[int] = None
     ) -> ProviderResponseData:
         start_time = time.time()
-        active_model = model or self.default_model or "qwen/qwen3.6-27b"
+        active_model = model or self.default_model or "openai/gpt-oss-120b"
         if active_model in ("llama-3.3-70b-versatile", "llama-3.1-8b-instant"):
-            active_model = "qwen/qwen3.6-27b"
+            active_model = "openai/gpt-oss-120b"
         url = f"{self.base_url}/chat/completions"
 
         messages = []
@@ -53,7 +53,7 @@ class GroqProvider(AIProvider):
 
         # Safe high-speed models verified active on Groq
         models_to_try = [active_model]
-        for fb in ["qwen/qwen3.8-27b", "openai/gpt-oss-20b", "openai/gpt-oss-120b", "groq/compound", "groq/compound-mini"]:
+        for fb in ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "groq/compound-mini", "qwen/qwen3.6-27b"]:
             if fb not in models_to_try:
                 models_to_try.append(fb)
 
@@ -66,14 +66,21 @@ class GroqProvider(AIProvider):
 
             payload["model"] = current_model
             if json_mode:
-                # qwen3.6 emits <think> reasoning tokens before JSON which causes Groq's validator to error with 400.
-                if "qwen3.6" in current_model.lower():
+                if "qwen" in current_model.lower():
+                    # For Qwen reasoning models, hide internal thinking tokens so output produces direct clean JSON
+                    payload["reasoning_format"] = "hidden"
                     payload.pop("response_format", None)
-                elif any(k in current_model.lower() for k in ["qwen", "compound", "gpt-oss"]):
+                elif any(k in current_model.lower() for k in ["compound", "gpt-oss"]):
                     payload["response_format"] = {"type": "json_object"}
+                    payload.pop("reasoning_format", None)
                 else:
                     payload.pop("response_format", None)
+                    payload.pop("reasoning_format", None)
             else:
+                if "qwen" in current_model.lower():
+                    payload["reasoning_format"] = "hidden"
+                else:
+                    payload.pop("reasoning_format", None)
                 payload.pop("response_format", None)
 
             # Dynamic TPM Guard: estimate prompt input tokens and enforce strict 7,200 total token budget
@@ -84,7 +91,7 @@ class GroqProvider(AIProvider):
             if "qwen" in current_model.lower():
                 model_limit = 800
             else:
-                model_limit = min(1500, safe_ceiling)
+                model_limit = min(2000, safe_ceiling)
 
             target_max = max_tokens or model_limit
             payload["max_tokens"] = max(350, min(target_max, model_limit, safe_ceiling))

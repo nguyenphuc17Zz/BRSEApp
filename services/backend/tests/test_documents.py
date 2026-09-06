@@ -351,3 +351,139 @@ def test_custom_output_filename(tmp_path: Path):
     assert p4.name == "BaoCao_vi.docx"
 
 
+@pytest.mark.asyncio
+async def test_delete_all_documents(tmp_path: Path):
+    """Verify delete_all_documents cleans up DB records, associated jobs, and disk files."""
+    from sqlalchemy import select
+    from app.api.documents import delete_all_documents, bulk_delete_documents, BulkDeleteRequest
+    from app.db.models import Project
+
+    # Create dummy files on disk
+    f1 = tmp_path / "doc1.docx"
+    f1.write_text("file 1 content")
+    f2 = tmp_path / "doc2.docx"
+    f2.write_text("file 2 content")
+
+    async with async_session_maker() as db:
+        import uuid
+        p1_id = f"proj_{uuid.uuid4().hex[:8]}"
+        p2_id = f"proj_{uuid.uuid4().hex[:8]}"
+        p1 = Project(id=p1_id, name="Alpha Project", code=f"A_{uuid.uuid4().hex[:6]}")
+        p2 = Project(id=p2_id, name="Beta Project", code=f"B_{uuid.uuid4().hex[:6]}")
+        db.add_all([p1, p2])
+        await db.commit()
+
+        d1 = DocumentFile(
+            project_id=p1_id,
+            filename="doc1.docx",
+            file_type="docx",
+            file_size=len("file 1 content"),
+            original_path=str(f1),
+            detected_language="ja"
+        )
+        d2 = DocumentFile(
+            project_id=p2_id,
+            filename="doc2.docx",
+            file_type="docx",
+            file_size=len("file 2 content"),
+            original_path=str(f2),
+            detected_language="ja"
+        )
+        db.add_all([d1, d2])
+        await db.commit()
+        await db.refresh(d1)
+        await db.refresh(d2)
+
+        # 1. Delete all in proj_alpha
+        res_alpha = await delete_all_documents(project_id=p1_id, db=db)
+        assert res_alpha["deleted_count"] == 1
+        assert not f1.exists()
+        assert f2.exists()
+
+        # Check d1 deleted, d2 still exists
+        res_d1 = (await db.execute(select(DocumentFile).where(DocumentFile.id == d1.id))).scalar_one_or_none()
+        assert res_d1 is None
+        res_d2 = (await db.execute(select(DocumentFile).where(DocumentFile.id == d2.id))).scalar_one_or_none()
+        assert res_d2 is not None
+
+        # 2. Test bulk_delete_documents with doc_ids
+        req = BulkDeleteRequest(doc_ids=[d2.id])
+        res_ids = await bulk_delete_documents(payload=req, db=db)
+        assert res_ids["deleted_count"] == 1
+        assert not f2.exists()
+
+        # 3. Call again when empty
+        res_empty = await bulk_delete_documents(payload=BulkDeleteRequest(project_id=p1_id), db=db)
+        assert res_empty["deleted_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_common_paths_endpoint():
+    """Verify get_common_paths returns host system directories."""
+    from app.api.documents import get_common_paths
+    paths = await get_common_paths()
+    assert "desktop" in paths
+    assert "downloads" in paths
+    assert "documents" in paths
+    assert "default_output" in paths
+    assert paths["default_output"] == "data/documents/output"
+    assert len(paths["desktop"]) > 0
+    assert len(paths["downloads"]) > 0
+    assert len(paths["documents"]) > 0
+
+
+@pytest.mark.asyncio
+async def test_browse_directory_handler(monkeypatch):
+    """Verify browse_directory properly falls back or returns canceled/success safely."""
+    from app.api.documents import browse_directory
+
+    # Test when user cancels dialog
+    monkeypatch.setattr("tkinter.filedialog.askdirectory", lambda **kwargs: "")
+    res = await browse_directory({"initial_dir": ""})
+    assert res["success"] is True
+    assert res["canceled"] is True
+
+    # Test when user selects a folder
+    monkeypatch.setattr("tkinter.filedialog.askdirectory", lambda **kwargs: "E:/AutomationTranslate")
+    res2 = await browse_directory({"initial_dir": ""})
+    assert res2["success"] is True
+    assert res2["canceled"] is False
+    assert "AutomationTranslate" in res2["path"]
+
+
+@pytest.mark.asyncio
+async def test_list_documents_excludes_cloud_by_default():
+    """Verify list_documents excludes cloud documents (gdoc, gsheet, gslide) by default and includes them when requested."""
+    from app.api.documents import list_documents
+    async with async_session_maker() as db:
+        d_local = DocumentFile(
+            filename="local_spec.docx",
+            file_type="docx",
+            file_size=1024,
+            original_path="dummy_local_path.docx"
+        )
+        d_gdoc = DocumentFile(
+            filename="cloud_spec.gdoc",
+            file_type="gdoc",
+            file_size=0,
+            original_path="1dummy_drive_id"
+        )
+        db.add_all([d_local, d_gdoc])
+        await db.commit()
+        await db.refresh(d_local)
+        await db.refresh(d_gdoc)
+
+        # 1. Default (include_cloud=False)
+        items_default = await list_documents(include_cloud=False, db=db)
+        filenames_default = [item["filename"] for item in items_default]
+        assert "local_spec.docx" in filenames_default
+        assert "cloud_spec.gdoc" not in filenames_default
+
+        # 2. include_cloud=True
+        items_all = await list_documents(include_cloud=True, db=db)
+        filenames_all = [item["filename"] for item in items_all]
+        assert "local_spec.docx" in filenames_all
+        assert "cloud_spec.gdoc" in filenames_all
+
+
+

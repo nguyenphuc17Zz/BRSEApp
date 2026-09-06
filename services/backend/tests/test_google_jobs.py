@@ -387,3 +387,163 @@ async def test_google_drive_office_file_self_healing_fallback():
         assert mock_hybrid_pipe.call_count == 1
 
 
+@pytest.mark.asyncio
+async def test_google_sheet_translate_sheet_names_flag():
+    """Verify that translate_sheet_names option triggers translate_and_update_sheet_titles when enabled and skips when disabled."""
+    async with async_session_maker() as db:
+        acc = IntegrationAccount(
+            provider="google",
+            account_name="Sheet Title Flag Test",
+            email="sheettitle@gmail.com",
+            encrypted_access_token="fake_enc_tok",
+            is_active=True,
+            is_mock=False
+        )
+        db.add(acc)
+        await db.commit()
+        await db.refresh(acc)
+
+        doc = DocumentFile(filename="SheetFlag.gsheet", file_type="sheet", file_size=0, original_path="gsheet_flag_01")
+        db.add(doc)
+        await db.commit()
+        await db.refresh(doc)
+
+        # 1. Test enabled (default)
+        job_enabled = DocumentJob(
+            document_id=doc.id,
+            status="queued",
+            source_language="ja",
+            target_language="vi",
+            provider="gemini",
+            model="gemini-3.7-flash",
+            options_json=json.dumps({
+                "file_id": "gsheet_flag_01",
+                "file_type": "sheet",
+                "title": "SheetFlag",
+                "account_id": acc.id,
+                "translate_sheet_names": True
+            })
+        )
+        # 2. Test disabled
+        job_disabled = DocumentJob(
+            document_id=doc.id,
+            status="queued",
+            source_language="ja",
+            target_language="vi",
+            provider="gemini",
+            model="gemini-3.7-flash",
+            options_json=json.dumps({
+                "file_id": "gsheet_flag_01",
+                "file_type": "sheet",
+                "title": "SheetFlag",
+                "account_id": acc.id,
+                "translate_sheet_names": False
+            })
+        )
+        db.add_all([job_enabled, job_disabled])
+        await db.commit()
+        await db.refresh(job_enabled)
+        await db.refresh(job_disabled)
+
+    copy_mock_resp = {
+        "id": "copy-gsheet-flag-translated",
+        "name": "SheetFlag_VI",
+        "webViewLink": "https://drive.google.com/file/d/copy-gsheet-flag-translated/view"
+    }
+
+    async def fake_translate_batch(*args, **kwargs):
+        batch = kwargs.get("batch") or []
+        for seg in batch:
+            seg.translated_text = f"{seg.source_text} (VI)"
+            seg.status = "translated"
+
+    with patch.object(GoogleWorkspaceClient, "get_valid_access_token", new_callable=AsyncMock, return_value="fake_access_token"), \
+         patch.object(GoogleSheetsService, "get_spreadsheet", new_callable=AsyncMock, return_value=SAMPLE_SHEET), \
+         patch.object(GoogleDriveService, "create_translated_copy", new_callable=AsyncMock, return_value=copy_mock_resp), \
+         patch.object(GoogleSheetsService, "apply_translations_to_copy", new_callable=AsyncMock, return_value=True), \
+         patch.object(GoogleSheetsService, "translate_and_update_sheet_titles", new_callable=AsyncMock) as mock_translate_sheets, \
+         patch.object(google_job_manager, "_translate_batch", side_effect=fake_translate_batch):
+
+        # Test job_enabled
+        await google_job_manager._run_job_pipeline(job_enabled.id)
+        assert mock_translate_sheets.call_count == 1
+
+        mock_translate_sheets.reset_mock()
+
+        # Test job_disabled
+        await google_job_manager._run_job_pipeline(job_disabled.id)
+        assert mock_translate_sheets.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_google_docs_restores_protected_tokens_in_source_text():
+    """Test that protected tokens are restored in source_text before search-and-replace in Google Docs."""
+    await init_db()
+    async with async_session_maker() as db:
+        acc = IntegrationAccount(
+            provider="google",
+            account_name="Token Test Account",
+            email="tokens@example.com",
+            encrypted_access_token="mock_token",
+            is_active=True,
+            is_mock=False
+        )
+        db.add(acc)
+        doc_file = DocumentFile(
+            filename="Test_Tokens_Doc",
+            file_type="gdoc",
+            file_size=1024,
+            original_path="doc-tokens-123",
+            detected_language="vi"
+        )
+        db.add(doc_file)
+        await db.commit()
+        await db.refresh(doc_file)
+
+        job = DocumentJob(
+            document_id=doc_file.id,
+            status="queued",
+            source_language="vi",
+            target_language="ja",
+            provider="groq",
+            model="qwen/qwen3.6-27b",
+            style="Technical",
+            options_json='{"file_id": "doc-tokens-123", "file_type": "gdoc", "title": "Test_Tokens_Doc", "target_mode": "create"}'
+        )
+        db.add(job)
+        await db.commit()
+        await db.refresh(job)
+
+        seg = DocumentSegment(
+            job_id=job.id,
+            segment_index=0,
+            location_json='{"tab_id": "t.0", "paragraph_index": 0}',
+            source_text="Khóa mã hóa __PROTECTED_TICKET_ID_1__ GCM an toàn.",
+            protected_tokens_json='{"__PROTECTED_TICKET_ID_1__": "AES-256"}',
+            translated_text="AES-256 GCMで暗号化し、安全です。",
+            status="translated"
+        )
+        db.add(seg)
+        await db.commit()
+        job_id = job.id
+
+    copy_mock_resp = {"id": "copy-doc-tokens-456", "name": "Test_Tokens_Doc_JA"}
+
+    with patch.object(GoogleWorkspaceClient, "get_valid_access_token", new_callable=AsyncMock, return_value="fake_token"), \
+         patch.object(GoogleDocsService, "get_document_content", new_callable=AsyncMock, return_value=SAMPLE_DOC), \
+         patch.object(GoogleDriveService, "create_translated_copy", new_callable=AsyncMock, return_value=copy_mock_resp), \
+         patch.object(GoogleDocsService, "apply_translations_to_copy", new_callable=AsyncMock) as mock_apply, \
+         patch.object(GoogleDocsService, "translate_and_update_tab_titles", new_callable=AsyncMock):
+
+        await google_job_manager._run_job_pipeline(job_id)
+
+        assert mock_apply.called
+        translations_passed = mock_apply.call_args[1]["translations"]
+        assert len(translations_passed) >= 1
+        matched_item = next(t for t in translations_passed if "AES-256" in t["source_text"])
+        assert "__PROTECTED_TICKET_ID_1__" not in matched_item["source_text"]
+        assert "Khóa mã hóa AES-256 GCM an toàn." == matched_item["source_text"]
+
+
+
+

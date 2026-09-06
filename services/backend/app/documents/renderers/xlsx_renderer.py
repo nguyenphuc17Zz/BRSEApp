@@ -1,5 +1,7 @@
 from pathlib import Path
 from typing import Dict, Any, Optional
+import re
+import json
 import openpyxl
 from app.core.logging import logger
 from app.documents.ocr.image_translator import image_translator
@@ -69,6 +71,58 @@ class XlsxRenderer:
                                 img._data = lambda nb=new_bytes: nb
                     except Exception as img_err:
                         logger.warning(f"Failed to translate embedded image {img_idx + 1} in sheet '{sheet_name}': {img_err}")
+
+        # 3. Rename sheets if translate_sheet_names is enabled
+        translate_sheet_names = opts.get("translate_sheet_names", True)
+        if translate_sheet_names and wb.sheetnames:
+            sheet_title_map = {}
+            if provider:
+                items = [{"id": i, "text": name} for i, name in enumerate(wb.sheetnames)]
+                prompt = f"""Translate the following Excel sheet names from {src_lang} to {tgt_lang}. Keep them concise (max 30 chars).
+JSON:
+{json.dumps(items, ensure_ascii=False)}
+
+Schema: {{"translations": [{{"id": 0, "translated": "..."}}]}}"""
+                try:
+                    from app.engine.pipeline import clean_json_response
+                    resp = await provider.generate(
+                        prompt=prompt,
+                        system_instruction=f"Translate spreadsheet tab names concisely from {src_lang} to {tgt_lang}.",
+                        temperature=0.1,
+                        json_mode=True
+                    )
+                    data = clean_json_response(resp.text)
+                    for t in data.get("translations", []):
+                        raw_id = t.get("id")
+                        val = t.get("translated", "")
+                        if val:
+                            sheet_title_map[raw_id] = val
+                            try:
+                                sheet_title_map[int(raw_id)] = val
+                                sheet_title_map[str(raw_id)] = val
+                            except (ValueError, TypeError):
+                                pass
+                except Exception as sheet_err:
+                    logger.warning(f"Failed to translate Excel sheet names via AI: {sheet_err}")
+
+            used_names = set()
+            for idx, old_name in enumerate(list(wb.sheetnames)):
+                new_title = sheet_title_map.get(idx) or sheet_title_map.get(str(idx))
+                if new_title and new_title.strip():
+                    clean_name = re.sub(r'[\\/?*\[\]:]', '_', new_title.strip())[:31]
+                    final_name = clean_name
+                    counter = 1
+                    while final_name in used_names or (final_name in wb.sheetnames and final_name != old_name):
+                        suffix = f"_{counter}"
+                        final_name = f"{clean_name[:31-len(suffix)]}{suffix}"
+                        counter += 1
+                    try:
+                        wb[old_name].title = final_name
+                        used_names.add(final_name)
+                    except Exception as ren_err:
+                        logger.warning(f"Could not rename Excel sheet '{old_name}' to '{final_name}': {ren_err}")
+                else:
+                    used_names.add(old_name)
 
         wb.save(str(output_path))
         logger.info(f"XLSX workbook successfully rendered to {output_path}")

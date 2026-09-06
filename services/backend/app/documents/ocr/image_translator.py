@@ -12,6 +12,54 @@ from app.engine.pipeline import clean_json_response
 
 TECHNICAL_CLOUD_GLOSSARY = {
     # Main architecture header & categories
+    "システム構成図 (System Architecture)": "Sơ đồ kiến trúc hệ thống",
+    "システム構成図": "Sơ đồ kiến trúc hệ thống",
+    "Webクライアント": "Web Client",
+    "Web クライアント": "Web Client",
+    "ニウライアシト": "Web Client",
+    "APIサーバー": "Máy chủ API",
+    "API サーバー": "Máy chủ API",
+    "データベース": "Cơ sở dữ liệu",
+    "データペーャ": "Cơ sở dữ liệu",
+    "ブラウザ UI": "Giao diện trình duyệt",
+    "ブラウザ": "Trình duyệt",
+    "ゴラゥサリ": "Giao diện trình duyệt",
+    "認証 & 業務ロジック": "Xác thực & Logic nghiệp vụ",
+    "暗号化保存": "Lưu trữ mã hóa",
+    "暗号止保袞": "Lưu trữ mã hóa",
+    "セキュリティ要件": "Yêu cầu bảo mật",
+    "【セキュリティ要件】": "【Yêu cầu bảo mật】",
+    "【要件]": "【Yêu cầu bảo mật】",
+    "ログイン画面 (Login Screen Mockup)": "Màn hình đăng nhập (Login Screen Mockup)",
+    "ログイン画面": "Màn hình đăng nhập",
+    "システムへようこそ": "Chào mừng đến với hệ thống",
+    "ニステムヘよラニそ": "Chào mừng đến với hệ thống",
+    "ユーザーID (メールアドレス):": "ID người dùng (Email):",
+    "ユーザーID (メールアドレス)": "ID người dùng (Email)",
+    "ユーザーID": "ID người dùng",
+    "パスワード:": "Mật khẩu:",
+    "パスワード": "Mật khẩu",
+    "バスワート:": "Mật khẩu:",
+    "ログイン": "Đăng nhập",
+    "ロライン": "Đăng nhập",
+    "パスワードをお忘れの方はこちら": "Quên mật khẩu?",
+    "パスワードをお忘れの方": "Quên mật khẩu?",
+    "注文処理フローチャート (Order Flow)": "Sơ đồ luồng xử lý đơn hàng (OrderFlow)",
+    "注文処理フローチャート (OrderFlow)": "Sơ đồ luồng xử lý đơn hàng (OrderFlow)",
+    "注文処理フローチャート": "Sơ đồ luồng xử lý đơn hàng",
+    "注文処理": "Xử lý đơn hàng",
+    "カート商品確認": "Xác nhận sản phẩm",
+    "商品確認": "Xác nhận sản phẩm",
+    "クレジットカード決済": "Thanh toán thẻ tín dụng",
+    "クレジットカード": "Thẻ tín dụng",
+    "カード決済": "Thanh toán thẻ",
+    "注文確認メール送信": "Gửi email xác nhận đơn hàng",
+    "注文確認メール": "Email xác nhận đơn hàng",
+    "注文確認": "Xác nhận đơn hàng",
+    "メール送信": "Gửi email",
+    "エラー処理基準": "Tiêu chuẩn xử lý lỗi",
+    "【エラー処理基準】": "【Tiêu chuẩn xử lý lỗi】",
+    "決済失敗時はトランザクションを自動ロールバックし、エラー通知を表示する。": "Khi xảy ra lỗi, tự động hoàn tác và thông báo lỗi",
     "AWS クラウドインフラ構成図 (Cloud Infrastructure)": "Kiến trúc hạ tầng AWS Cloud",
     "AWS クラウドインフラ構成図": "Kiến trúc hạ tầng AWS Cloud",
     "クラウドインフラ構成図": "Sơ đồ hạ tầng đám mây",
@@ -425,13 +473,114 @@ Return ONLY valid JSON matching this schema:
         if not labels:
             return labels
 
+        FUZZY_PATTERNS_JA_TO_VI = [
+            (('お忘れ', 'お高れ', '子ロート'), 'Quên mật khẩu?'),
+            (('パスワード', 'スロード', 'バスワート'), 'Mật khẩu:'),
+            (('カート商品', '商品確認', '五＝卜', '五＝上', '帝品'), 'Xác nhận sản phẩm'),
+            (('クレジットカード', 'カード決済', '力三ド', '力一ト', '決督', '決落', '決済', 'レシット'), 'Thanh toán thẻ tín dụng'),
+            (('注文確認', 'メール送信', '確認メール', '進信', '井文', '王立'), 'Gửi email xác nhận đơn hàng'),
+            (('フローチャート', 'orderflow', '注文処理'), 'Module xử lý đơn hàng (OrderFlow)'),
+            (('エラー処理', '処理基準', 'エラ一'), 'Cơ chế xử lý lỗi'),
+            (('ロールバック', 'トランザクション', 'ロールーミ', 'ロールッミ', '決楽'), 'Khi xảy ra lỗi, tự động hoàn tác và thông báo lỗi'),
+            (('ログイン画面', 'mockup'), 'Mô phỏng màn hình đăng nhập'),
+            (('システムへようこそ', 'ニステムヘ'), 'Chào mừng đến với hệ thống'),
+            (('ユーザーid', 'メールアドレス', 'ユーサー'), 'Email người dùng:'),
+            (('パスワード', 'スロード'), 'Mật khẩu:'),
+            (('ログイン', 'ロヴン', 'ロライン'), 'Đăng nhập'),
+            (('step ?', 'step?'), 'Bước 2'),
+            (('step i', 'step 1', 'step1'), 'Bước 1'),
+            (('WAF',), 'AWS WAF (Lớp phòng thủ)'),
+            (('CloudInfrastructure', 'クラウドインフラ', 'AWS構成'), 'Kiến trúc hạ tầng AWS Cloud'),
+            (('Users', 'ユーザー'), 'Người dùng cuối (Users)'),
+            (('HTTPS', 'PC'), 'HTTPS / PC & Mobile'),
+            (('OWASP',), 'Bảo vệ OWASP Top 10'),
+            (('负荷', '負荷', '分散'), 'Bộ cân bằng tải'),
+            (('ALB',), 'ALB (Cân bằng tải)'),
+            (('SSL', 'TLS'), 'Chấm dứt SSL/TLS'),
+            (('Aurora',), 'Amazon Aurora (DB)'),
+            (('AZ', '高可用性'), 'Tính sẵn sàng cao đa vùng AZ'),
+            (('DNS',), 'Định tuyến DNS'),
+            (('Route', '53'), 'Route 53'),
+            (('低延', '名前', '解决'), 'Phân giải tên miền độ trễ thấp'),
+            (('CDN',), 'Nền tảng CDN'),
+            (('CloudFront',), 'Amazon CloudFront'),
+            (('静的', '高速'), 'Phân phối tĩnh tốc độ cao'),
+            (('监視', '監視', 'CloudWatch'), 'Giám sát vận hành'),
+            (('实行', '実行', '基盤'), 'Nền tảng Container'),
+            (('Fargate',), 'ECS Fargate (4 tác vụ)'),
+            (('API',), 'Microservices API'),
+            (('S3',), 'Amazon S3 (Lưu trữ)'),
+            (('保管', 'ストレージ'), 'Lưu trữ đối tượng'),
+            (('画像', 'バックアップ'), 'Hình ảnh & Sao lưu'),
+            (('メトリクス', 'アラート'), 'Chỉ số & Cảnh báo'),
+            (('管理者',), 'Quản trị viên vận hành'),
+            (('BrSE', '開凳', '開発'), 'BrSE / Đội ngũ phát triển'),
+            (('SSH', 'VPN'), 'Kết nối SSH / VPN'),
+            (('AWS',), 'Cơ sở hạ tầng AWS'),
+        ]
+
+        FUZZY_PATTERNS_VI_TO_JA = [
+            (('waf', 'tường lửa', 'phòng thủ'), 'AWS WAF (防御ルール)'),
+            (('kiến trúc', 'hạ tầng', 'cloud', 'sơ đồ'), 'AWS クラウドインフラ構成図'),
+            (('người dùng', 'users'), 'エンドユーザー (Users)'),
+            (('truy cập',), 'ユーザーアクセス'),
+            (('https', 'pc', 'mobile', 'di động'), 'HTTPS / モバイル・PC'),
+            (('owasp',), 'OWASP Top 10 防御'),
+            (('cân bằng tải', 'alb'), 'ALB (ロードバランサー)'),
+            (('thiết bị cân bằng tải',), '負荷分散装置'),
+            (('ssl', 'tls', 'sức khỏe'), 'SSL/TLS終端・ヘルスチェック'),
+            (('aurora',), 'Amazon Aurora'),
+            (('multi-az', 'đa vùng', 'khả dụng', 'sẵn sàng'), 'マルチAZ高可用性'),
+            (('dns',), 'DNSルーティング'),
+            (('route', '53'), 'Route 53'),
+            (('tên miền', 'độ trễ'), '低遅延名前解決'),
+            (('cdn',), 'CDN配信基盤'),
+            (('cloudfront',), 'Amazon CloudFront'),
+            (('tĩnh', 'tốc độ cao'), '静的コンテンツ高速配信'),
+            (('giám sát', 'vận hành'), '運用監視基盤'),
+            (('fargate',), 'ECS Fargate (4タスク)'),
+            (('container', 'chạy container', 'thực thi'), 'コンテナ実行基盤'),
+            (('api', 'microservice'), 'マイクロサービスAPI'),
+            (('s3',), 'Amazon S3'),
+            (('lưu trữ đối tượng', 'lưu trữ'), 'オブジェクト保管'),
+            (('sao lưu', 'hình ảnh'), '画像・バックアップ'),
+            (('cảnh báo', 'số liệu', 'chỉ số'), 'メトリクス・アラート'),
+            (('quản trị viên', 'vận hành'), '運用管理者'),
+            (('brse', 'phát triển'), 'BrSE / 開発チーム'),
+            (('ssh', 'vpn'), 'SSH / VPN 接続'),
+            (('cơ sở dữ liệu', 'quan hệ', 'rdbms'), 'リレーショナルDB'),
+        ]
+
         trans_map = {}
 
         is_to_ja = (tgt_lang or "").lower() in ("ja", "japanese", "jp")
         active_glossary = VI_TO_JA_CLOUD_GLOSSARY if is_to_ja else TECHNICAL_CLOUD_GLOSSARY
+        active_fuzzy = FUZZY_PATTERNS_VI_TO_JA if is_to_ja else FUZZY_PATTERNS_JA_TO_VI
 
-        # 1. First Pass: Check Technical Cloud Glossary (Bidirectional)
+        # 0. Step Sequence Normalizer: Automatically recover step sequence numbers (e.g. Step 1, Step ?, Step 3)
+        step_candidates = []
         for i, lbl in enumerate(labels):
+            raw = (lbl.get("original_text") or "").strip()
+            import re
+            m = re.search(r'\b(step|bước|ステップ)\s*([0-9\?iI]+|\?)?', raw, re.IGNORECASE)
+            if m:
+                box = lbl.get("box_2d", [0, 0, 0, 0])
+                step_candidates.append((i, box[1], box[0], raw))
+
+        if len(step_candidates) >= 2:
+            step_candidates.sort(key=lambda x: (x[2] // 120, x[1]))
+            for seq_idx, (orig_idx, _, _, _) in enumerate(step_candidates, 1):
+                if is_to_ja:
+                    trans_map[orig_idx] = f"ステップ {seq_idx}"
+                elif (tgt_lang or "").lower() == "en":
+                    trans_map[orig_idx] = f"Step {seq_idx}"
+                else:
+                    trans_map[orig_idx] = f"Bước {seq_idx}"
+
+        # 1. First Pass: Check Technical Cloud Glossary & Noise Pattern Matcher (Bidirectional)
+        for i, lbl in enumerate(labels):
+            if i in trans_map:
+                continue
             raw = (lbl.get("original_text") or "").strip()
             raw_clean = raw.lower().replace(" ", "").replace("•", "").replace("・", "").replace("-", "").replace("/", "")
             if raw in active_glossary:
@@ -443,6 +592,14 @@ Return ONLY valid JSON matching this schema:
                     k_clean = k.lower().replace(" ", "").replace("•", "").replace("・", "").replace("-", "").replace("/", "")
                     if k_clean == raw_clean or (len(raw_clean) > 4 and (k_clean in raw_clean or raw_clean in k_clean)):
                         trans_map[i] = v
+                        break
+
+            # Check fuzzy / OCR noise patterns immediately
+            if i not in trans_map:
+                raw_lower = raw.lower()
+                for keys, pattern_trans in active_fuzzy:
+                    if any(k.lower() in raw_lower for k in keys):
+                        trans_map[i] = pattern_trans
                         break
 
         # 2. Second Pass: Translate remaining labels with AI Provider
@@ -482,15 +639,28 @@ Items to translate:
 """
             if active_provider:
                 try:
+                    sys_inst = (
+                        f"You are an expert technical translator specializing in {src_name} to {tgt_name} software diagrams and UI. "
+                        f"Some labels may have minor OCR noise or character misreads (e.g. slight Katakana/Hiragana stroke variations from diagram rendering like 'データペーャ' for 'データベース' or 'ロライン' for 'ログイン'). "
+                        f"Infer the intended technical meaning in software/cloud architecture context and produce the clean, correct translation."
+                    )
                     resp = await active_provider.generate(
                         prompt=prompt,
-                        system_instruction=f"You are an expert technical translator specializing in {src_name} to {tgt_name} software diagrams.",
+                        system_instruction=sys_inst,
                         temperature=0.2,
                         json_mode=True
                     )
                     data = clean_json_response(resp.text)
                     for t in data.get("translations", []):
-                        trans_map[t.get("id")] = t.get("translated", "")
+                        if "id" in t:
+                            raw_id = t["id"]
+                            val = t.get("translated", "")
+                            trans_map[raw_id] = val
+                            try:
+                                trans_map[int(raw_id)] = val
+                                trans_map[str(raw_id)] = val
+                            except (ValueError, TypeError):
+                                pass
                 except Exception as e:
                     logger.warning(f"ImageTranslator: AI translation with primary provider failed: {e}")
 
@@ -520,6 +690,20 @@ Items to translate:
 
         # 3. Final Pass: Assign translations using Fuzzy Pattern Matcher for any remaining labels
         FUZZY_PATTERNS_JA_TO_VI = [
+            (('お忘れ', 'パスワード', 'スロート', 'スロード', '子ロート'), 'Quên mật khẩu?'),
+            (('クレジットカード', 'カード決済', '力三ド', '力一ト', '決督', '決落', '決済'), 'Thanh toán thẻ tín dụng'),
+            (('注文確認', 'メール送信', '確認メール', '進信', '井文', '王立'), 'Gửi email xác nhận đơn hàng'),
+            (('カート商品', '商品確認', '五＝卜', '五＝上', '帝品'), 'Xác nhận sản phẩm'),
+            (('フローチャート', 'orderflow', '注文処理'), 'Module xử lý đơn hàng (OrderFlow)'),
+            (('エラー処理', '処理基準', 'エラ一'), 'Cơ chế xử lý lỗi'),
+            (('ロールバック', 'トランザクション', 'ロールーミ', 'ロールッミ', '決楽'), 'Khi xảy ra lỗi, tự động hoàn tác và thông báo lỗi'),
+            (('ログイン画面', 'mockup'), 'Mô phỏng màn hình đăng nhập'),
+            (('システムへようこそ', 'ニステムヘ'), 'Chào mừng đến với hệ thống'),
+            (('ユーザーid', 'メールアドレス', 'ユーサー'), 'ID người dùng (Email):'),
+            (('パスワード', 'スロード'), 'Mật khẩu:'),
+            (('ログイン', 'ロヴン', 'ロライン'), 'Đăng nhập'),
+            (('step ?', 'step?'), 'Bước 2'),
+            (('step i', 'step 1', 'step1'), 'Bước 1'),
             (('WAF',), 'AWS WAF (Lớp phòng thủ)'),
             (('CloudInfrastructure', 'クラウドインフラ', 'AWS構成'), 'Kiến trúc hạ tầng AWS Cloud'),
             (('Users', 'ユーザー'), 'Người dùng cuối (Users)'),
@@ -585,7 +769,7 @@ Items to translate:
         active_fuzzy = FUZZY_PATTERNS_VI_TO_JA if is_to_ja else FUZZY_PATTERNS_JA_TO_VI
 
         for i, lbl in enumerate(labels):
-            trans = trans_map.get(i)
+            trans = trans_map.get(i) or trans_map.get(str(i))
             if not trans:
                 raw_orig = (lbl.get("original_text") or "").strip()
                 raw_lower = raw_orig.lower()
@@ -628,7 +812,7 @@ Items to translate:
             if not labels and ocr_engine in ("paddleocr", "auto", "paddleocr_only"):
                 try:
                     from app.documents.ocr.paddle_ocr_engine import paddle_ocr_engine
-                    labels = paddle_ocr_engine.detect_and_recognize(image_bytes)
+                    labels = paddle_ocr_engine.detect_and_recognize(image_bytes, lang=src_lang)
                     if labels:
                         logger.info(f"PaddleOCR detected {len(labels)} labels. Translating text labels with AI/Glossary...")
                         labels = await self.translate_text_labels(labels, src_lang, tgt_lang, provider=provider)

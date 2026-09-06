@@ -40,6 +40,43 @@ async def lifespan(app: FastAPI):
             logger.info("Model catalog synchronized successfully from provider APIs.")
         except Exception as e:
             logger.warning(f"Initial model discovery error: {e}")
+
+        # Auto-clean any zombie/orphaned background translation jobs from prior runs
+        try:
+            from app.documents.models import DocumentJob
+            from sqlalchemy import update
+            stuck_res = await db.execute(
+                update(DocumentJob)
+                .where(DocumentJob.status.in_(["queued", "analyzing", "segmenting", "translating", "qa", "rendering"]))
+                .values(
+                    status="failed",
+                    error_message="Tiến trình bị gián đoạn do khởi động lại máy chủ.",
+                    current_stage="Đã dừng do khởi động lại hệ thống"
+                )
+            )
+            if stuck_res.rowcount > 0:
+                await db.commit()
+                logger.info(f"Auto-cleaned {stuck_res.rowcount} orphaned background translation jobs on startup.")
+        except Exception as e:
+            logger.warning(f"Startup orphan jobs cleanup warning: {e}")
+
+        # Auto-verify & refresh Google Workspace sessions on startup to persist login state
+        try:
+            from app.integrations.models import IntegrationAccount
+            from app.integrations.google.client import GoogleWorkspaceClient
+            google_accs = (await db.execute(
+                select(IntegrationAccount)
+                .where(IntegrationAccount.provider == "google", IntegrationAccount.is_active == True)
+            )).scalars().all()
+            for g_acc in google_accs:
+                if g_acc.encrypted_refresh_token and not g_acc.is_mock:
+                    try:
+                        await GoogleWorkspaceClient.get_valid_access_token(db, g_acc.id)
+                        logger.info(f"Persistent session verified for Google account: {g_acc.email or g_acc.id}")
+                    except Exception as tok_err:
+                        logger.warning(f"Could not auto-refresh Google session for {g_acc.id}: {tok_err}")
+        except Exception as e:
+            logger.warning(f"Startup Google session check notice: {e}")
     logger.info("Backend initialized and ready for requests.")
     yield
     logger.info("Shutting down backend...")

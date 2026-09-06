@@ -13,7 +13,10 @@ import {
   CheckCircle2,
   Image as ImageIcon,
   Edit3,
-  RotateCcw
+  RotateCcw,
+  ExternalLink,
+  RefreshCw,
+  History
 } from 'lucide-react';
 import { apiClient } from '../../api/client';
 import { Project, ProviderInfo, GoogleFileItem } from '../../types';
@@ -56,6 +59,12 @@ export const GoogleTranslateConfigModal: React.FC<GoogleTranslateConfigModalProp
   const [selectedSheets, setSelectedSheets] = useState<string[]>([]);
   const [isLoadingMeta, setIsLoadingMeta] = useState<boolean>(false);
 
+  // Docs specific (Multi-tab support)
+  const [availableTabs, setAvailableTabs] = useState<Array<{ id: string; title: string }>>([]);
+  const [selectedTabs, setSelectedTabs] = useState<string[]>([]);
+  const [translateTabTitles, setTranslateTabTitles] = useState<boolean>(true);
+  const [translateSheetNames, setTranslateSheetNames] = useState<boolean>(true);
+
   // Slides specific
   const [translateNotes, setTranslateNotes] = useState<boolean>(true);
 
@@ -84,9 +93,31 @@ export const GoogleTranslateConfigModal: React.FC<GoogleTranslateConfigModalProp
   );
   const [isFilenameEdited, setIsFilenameEdited] = useState<boolean>(false);
 
+  // Existing translation sync state
+  const [existingTranslation, setExistingTranslation] = useState<{
+    found: boolean;
+    target_file_id?: string;
+    target_name?: string;
+    web_url?: string;
+    last_translated_at?: string;
+    completed_segments?: number;
+    source_language?: string;
+    target_language?: string;
+  } | null>(null);
+  const [isCheckingExisting, setIsCheckingExisting] = useState<boolean>(false);
+  const [targetMode, setTargetMode] = useState<'create' | 'update'>('create');
+  const [hasAutoAligned, setHasAutoAligned] = useState<boolean>(false);
+
   const [isStarting, setIsStarting] = useState<boolean>(false);
 
   useEffect(() => {
+    // Reset selections and auto-alignment on file change
+    setAvailableSheets([]);
+    setSelectedSheets([]);
+    setAvailableTabs([]);
+    setSelectedTabs([]);
+    setHasAutoAligned(false);
+
     // Load file metadata
     const loadMeta = async () => {
       setIsLoadingMeta(true);
@@ -94,6 +125,9 @@ export const GoogleTranslateConfigModal: React.FC<GoogleTranslateConfigModalProp
         const meta = await apiClient.getGoogleFileMeta(file.id, file.type, accountId || undefined);
         if (meta.sheet_names && meta.sheet_names.length > 0) {
           setAvailableSheets(meta.sheet_names);
+        }
+        if (meta.tabs && meta.tabs.length > 0) {
+          setAvailableTabs(meta.tabs);
         }
       } catch (err) {
         console.warn('Could not fetch Google file metadata:', err);
@@ -109,6 +143,59 @@ export const GoogleTranslateConfigModal: React.FC<GoogleTranslateConfigModalProp
     setTargetFilename(computeDefaultFilename(file.name, targetLang, convertToGoogleFormat));
     setIsFilenameEdited(false);
   }, [file]);
+
+  // Check for existing translation when file, targetLang, or accountId changes
+  useEffect(() => {
+    let isMounted = true;
+    const checkExisting = async () => {
+      if (!file?.id) return;
+      setIsCheckingExisting(true);
+      try {
+        const res = await apiClient.findExistingGoogleTranslation(file.id, targetLang, accountId || undefined);
+        if (isMounted) {
+          if (res && res.found) {
+            // Auto-align source and target languages on initial load if previous translation used another pair
+            if (!hasAutoAligned && res.target_language && res.target_language.toLowerCase() !== targetLang.toLowerCase()) {
+              setHasAutoAligned(true);
+              setTargetLang(res.target_language.toLowerCase());
+              if (res.source_language) {
+                setSourceLang(res.source_language.toLowerCase());
+              }
+              setExistingTranslation(res);
+              setTargetMode('update');
+              return;
+            }
+
+            // Only show In-Place Sync if the existing translation matches the currently selected target language
+            if (!res.target_language || res.target_language.toLowerCase() === targetLang.toLowerCase()) {
+              setExistingTranslation(res);
+              setTargetMode('update');
+            } else {
+              setExistingTranslation(null);
+              setTargetMode('create');
+            }
+          } else {
+            setExistingTranslation(null);
+            setTargetMode('create');
+          }
+        }
+      } catch (err) {
+        if (isMounted) {
+          setExistingTranslation(null);
+          setTargetMode('create');
+        }
+      } finally {
+        if (isMounted) {
+          setIsCheckingExisting(false);
+        }
+      }
+    };
+
+    checkExisting();
+    return () => {
+      isMounted = false;
+    };
+  }, [file.id, targetLang, accountId, hasAutoAligned]);
 
   const handleSelectTargetLang = (newTgt: string) => {
     setTargetLang(newTgt);
@@ -134,6 +221,14 @@ export const GoogleTranslateConfigModal: React.FC<GoogleTranslateConfigModalProp
     }
   };
 
+  const toggleTabSelection = (tabId: string) => {
+    if (selectedTabs.includes(tabId)) {
+      setSelectedTabs(selectedTabs.filter(id => id !== tabId));
+    } else {
+      setSelectedTabs([...selectedTabs, tabId]);
+    }
+  };
+
   const handleStart = async () => {
     if (sourceLang === targetLang) {
       toast.error('Ngôn ngữ nguồn và ngôn ngữ đích không được trùng nhau.');
@@ -146,7 +241,9 @@ export const GoogleTranslateConfigModal: React.FC<GoogleTranslateConfigModalProp
         file_id: file.id,
         file_type: file.type,
         title: file.name,
-        target_filename: targetFilename.trim() || undefined,
+        target_filename: targetMode === 'create' ? (targetFilename.trim() || undefined) : undefined,
+        target_mode: targetMode,
+        target_file_id: targetMode === 'update' && existingTranslation?.found ? existingTranslation.target_file_id : undefined,
         source_language: sourceLang,
         target_language: targetLang,
         project_id: selectedProjectId || null,
@@ -154,10 +251,13 @@ export const GoogleTranslateConfigModal: React.FC<GoogleTranslateConfigModalProp
         provider: selectedProvider,
         model: selectedModel,
         selected_sheets: selectedSheets.length > 0 ? selectedSheets : null,
+        selected_tabs: selectedTabs.length > 0 ? selectedTabs : null,
         translate_notes: translateNotes,
         translate_images: translateImages,
         ocr_mode: ocrEngine,
         convert_to_google_format: convertToGoogleFormat,
+        translate_tab_titles: translateTabTitles,
+        translate_sheet_names: translateSheetNames,
         parent_folder_id: file.parents?.[0] || null,
         account_id: accountId || null
       });
@@ -363,6 +463,66 @@ export const GoogleTranslateConfigModal: React.FC<GoogleTranslateConfigModalProp
             />
           </div>
 
+          {/* File-specific options: Google Docs */}
+          {file.type === 'doc' && (
+            <div className="p-4 bg-sky-500/10 border border-sky-500/25 rounded-xl space-y-3">
+              <div className="flex items-center gap-2 text-sky-300 font-semibold text-xs">
+                <ShieldCheck className="w-4 h-4 text-sky-400" />
+                <span>Hỗ trợ đa thẻ (Document Tabs) & Bảng biểu (Tables)</span>
+              </div>
+              <p className="text-[11px] text-sky-400/80 leading-relaxed">
+                Hệ thống tự động phân tích và dịch nội dung các thẻ tài liệu, đoạn văn bản lẫn các ô trong bảng biểu, tạo bản sao độc lập an toàn trên Google Drive.
+              </p>
+
+              {availableTabs.length > 1 && (
+                <div className="pt-2 border-t border-sky-500/20">
+                  <span className="block text-slate-300 font-medium mb-1.5 text-xs">
+                    Chọn Thẻ tài liệu cần dịch (mặc định: dịch tất cả {availableTabs.length} thẻ):
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    {availableTabs.map((tab) => {
+                      const isSelected = selectedTabs.includes(tab.id);
+                      return (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => toggleTabSelection(tab.id)}
+                          className={`px-3 py-1 rounded-lg border text-xs flex items-center gap-1.5 transition-all ${
+                            isSelected
+                              ? 'bg-sky-600/30 border-sky-500 text-white font-medium'
+                              : 'bg-slate-800/80 border-slate-700 text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          <Layers className="w-3 h-3" />
+                          <span>{tab.title || tab.id}</span>
+                          {isSelected && <CheckCircle2 className="w-3 h-3 text-sky-400" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              <div className="pt-2.5 border-t border-sky-500/20">
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={translateTabTitles}
+                    onChange={(e) => setTranslateTabTitles(e.target.checked)}
+                    className="mt-0.5 rounded border-slate-700 text-sky-500 focus:ring-sky-400"
+                  />
+                  <div>
+                    <span className="text-sky-200 font-semibold text-xs flex items-center gap-1.5">
+                      <span>Dịch tiêu đề các Thẻ tài liệu (Translate Tab Titles)</span>
+                    </span>
+                    <p className="text-[11px] text-sky-300/70 mt-0.5 leading-relaxed">
+                      Tự động dịch tên các thẻ trên thanh tab bar sang ngôn ngữ đích (ví dụ: 'Thẻ 1' ➔ 'タブ 1'). Nếu bỏ chọn, giữ nguyên tên thẻ gốc.
+                    </p>
+                  </div>
+                </label>
+              </div>
+            </div>
+          )}
+
           {/* File-specific options: Google Sheets */}
           {file.type === 'sheet' && (
             <div className="p-4 bg-emerald-500/10 border border-emerald-500/25 rounded-xl space-y-3">
@@ -402,6 +562,24 @@ export const GoogleTranslateConfigModal: React.FC<GoogleTranslateConfigModalProp
                   </div>
                 </div>
               )}
+              <div className="pt-2.5 border-t border-emerald-500/20">
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={translateSheetNames}
+                    onChange={(e) => setTranslateSheetNames(e.target.checked)}
+                    className="mt-0.5 rounded border-slate-700 text-emerald-500 focus:ring-emerald-400"
+                  />
+                  <div>
+                    <span className="text-emerald-200 font-semibold text-xs flex items-center gap-1.5">
+                      <span>Dịch tên các Trang tính / Sheet (Translate Sheet Names)</span>
+                    </span>
+                    <p className="text-[11px] text-emerald-300/70 mt-0.5 leading-relaxed">
+                      Tự động dịch tên các sheet trên thanh tab của bảng tính sang ngôn ngữ đích. Nếu bỏ chọn, giữ nguyên tên sheet gốc.
+                    </p>
+                  </div>
+                </label>
+              </div>
             </div>
           )}
 
@@ -512,44 +690,178 @@ export const GoogleTranslateConfigModal: React.FC<GoogleTranslateConfigModalProp
             </label>
           </div>
 
-          {/* Output Filename Card (Customizable) */}
-          <div className="p-3.5 bg-slate-850 rounded-xl border border-slate-700/80 space-y-2.5">
+          {/* Publish Mode: In-place Sync vs New Copy */}
+          <div className="p-3.5 bg-slate-850 rounded-xl border border-slate-700/80 space-y-3">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                <Edit3 className="w-3.5 h-3.5 text-sky-400" />
-                <span>Tên tệp bản sao trên Google Drive (Output Filename)</span>
-              </label>
-              {isFilenameEdited && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTargetFilename(computeDefaultFilename(file.name, targetLang, convertToGoogleFormat));
-                    setIsFilenameEdited(false);
-                  }}
-                  className="text-[10px] text-sky-400 hover:text-sky-300 hover:underline flex items-center gap-1 font-medium transition-colors"
-                  title="Khôi phục lại tên gợi ý ban đầu"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                  <span>Đặt lại mặc định</span>
-                </button>
+              <span className="text-slate-300 font-semibold flex items-center gap-1.5 text-xs">
+                <Layers className="w-4 h-4 text-sky-400" />
+                Chế độ xuất bản (Publish Mode)
+              </span>
+              {isCheckingExisting && (
+                <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                  <RefreshCw className="w-3 h-3 animate-spin text-sky-400" />
+                  Đang kiểm tra bản dịch cũ...
+                </span>
               )}
             </div>
-            <div className="relative">
-              <input
-                type="text"
-                value={targetFilename}
-                onChange={(e) => {
-                  setTargetFilename(e.target.value);
-                  setIsFilenameEdited(true);
-                }}
-                placeholder={`Gợi ý: ${computeDefaultFilename(file.name, targetLang, convertToGoogleFormat)}`}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500 font-mono shadow-inner"
-              />
-            </div>
-            <p className="text-[10px] text-slate-400">
-              Mặc định sẽ gắn mã ngôn ngữ <code className="text-sky-300 bg-slate-800 px-1 py-0.5 rounded font-mono">_{targetLang.toUpperCase()}</code> vào tên tệp gốc để tạo bản sao an toàn, không ghi đè tệp gốc của bạn.
-            </p>
+
+            {existingTranslation?.found ? (
+              <div className="grid grid-cols-1 gap-2.5">
+                {/* Option 1: In-Place Sync */}
+                <div
+                  onClick={() => setTargetMode('update')}
+                  className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                    targetMode === 'update'
+                      ? 'bg-emerald-950/30 border-emerald-500/70 shadow-sm ring-1 ring-emerald-500/40'
+                      : 'bg-slate-800/60 border-slate-700 hover:border-slate-600'
+                  }`}
+                >
+                  <div className="flex items-start gap-2.5">
+                    <input
+                      type="radio"
+                      name="publishMode"
+                      value="update"
+                      checked={targetMode === 'update'}
+                      onChange={() => setTargetMode('update')}
+                      className="mt-0.5 text-emerald-500 focus:ring-emerald-400 border-slate-700 cursor-pointer"
+                    />
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-semibold text-emerald-300 text-xs flex items-center gap-1.5">
+                          <span>Cập nhật vào bản dịch đã có (In-Place Sync)</span>
+                        </span>
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                          ⭐ KHUYÊN DÙNG · TIẾT KIỆM TOKEN
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-300 leading-relaxed">
+                        Ghi đè nội dung dịch mới trực tiếp vào file hiện tại trên Google Drive. Giữ nguyên đường link chia sẻ, không sinh file rác.
+                      </p>
+
+                      <div className="mt-2 p-2 bg-slate-900/80 rounded-lg border border-slate-700/60 flex flex-col gap-1 text-[11px]">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-slate-400">Tệp đích:</span>
+                          <span className="text-slate-200 font-medium truncate max-w-[280px]" title={existingTranslation.target_name}>
+                            {existingTranslation.target_name}
+                          </span>
+                        </div>
+                        {existingTranslation.last_translated_at && (
+                          <div className="flex items-center justify-between text-slate-400">
+                            <span>Lần dịch gần nhất:</span>
+                            <span>{new Date(existingTranslation.last_translated_at).toLocaleString()}</span>
+                          </div>
+                        )}
+                        <div className="pt-1 mt-1 border-t border-slate-800 flex items-center justify-between">
+                          <span className="text-emerald-400 font-mono text-[10px]">
+                            ⚡ Tự động áp dụng Translation Memory (0 Token cho các đoạn cũ)
+                          </span>
+                          {existingTranslation.web_url && (
+                            <a
+                              href={existingTranslation.web_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-sky-400 hover:text-sky-300 flex items-center gap-1 text-[10px] hover:underline"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              <span>Mở file cũ</span>
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Option 2: New Copy */}
+                <div
+                  onClick={() => setTargetMode('create')}
+                  className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                    targetMode === 'create'
+                      ? 'bg-sky-950/30 border-sky-500/70 shadow-sm ring-1 ring-sky-500/40'
+                      : 'bg-slate-800/60 border-slate-700 hover:border-slate-600'
+                  }`}
+                >
+                  <div className="flex items-start gap-2.5">
+                    <input
+                      type="radio"
+                      name="publishMode"
+                      value="create"
+                      checked={targetMode === 'create'}
+                      onChange={() => setTargetMode('create')}
+                      className="mt-0.5 text-sky-500 focus:ring-sky-400 border-slate-700 cursor-pointer"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-slate-200 text-xs">
+                          Tạo bản sao mới riêng biệt (New Copy)
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Tạo một tệp mới độc lập trên Google Drive với đường link mới.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 p-2.5 bg-slate-900/60 rounded-lg border border-slate-700/50 text-[11px] text-slate-300">
+                <CheckCircle2 className="w-4 h-4 text-sky-400 flex-shrink-0" />
+                <span>
+                  Chưa phát hiện bản dịch nào trước đó cho tệp này. Hệ thống sẽ tạo một bản sao dịch mới an toàn trên Google Drive.
+                </span>
+              </div>
+            )}
           </div>
+
+          {/* Output Filename Card (Only shown when creating a new copy) */}
+          {targetMode === 'create' ? (
+            <div className="p-3.5 bg-slate-850 rounded-xl border border-slate-700/80 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
+                  <Edit3 className="w-3.5 h-3.5 text-sky-400" />
+                  <span>Tên tệp bản sao trên Google Drive (Output Filename)</span>
+                </label>
+                {isFilenameEdited && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTargetFilename(computeDefaultFilename(file.name, targetLang, convertToGoogleFormat));
+                      setIsFilenameEdited(false);
+                    }}
+                    className="text-[10px] text-sky-400 hover:text-sky-300 hover:underline flex items-center gap-1 font-medium transition-colors"
+                    title="Khôi phục lại tên gợi ý ban đầu"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Đặt lại mặc định</span>
+                  </button>
+                )}
+              </div>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={targetFilename}
+                  onChange={(e) => {
+                    setTargetFilename(e.target.value);
+                    setIsFilenameEdited(true);
+                  }}
+                  placeholder={`Gợi ý: ${computeDefaultFilename(file.name, targetLang, convertToGoogleFormat)}`}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500 font-mono shadow-inner"
+                />
+              </div>
+              <p className="text-[10px] text-slate-400">
+                Mặc định sẽ gắn mã ngôn ngữ <code className="text-sky-300 bg-slate-800 px-1 py-0.5 rounded font-mono">_{targetLang.toUpperCase()}</code> vào tên tệp gốc để tạo bản sao an toàn, không ghi đè tệp gốc của bạn.
+              </p>
+            </div>
+          ) : (
+            <div className="p-3 bg-slate-850/60 rounded-xl border border-slate-700/50 flex items-center justify-between text-xs text-slate-400">
+              <span className="flex items-center gap-1.5">
+                <Edit3 className="w-3.5 h-3.5 text-slate-500" />
+                <span>Ghi đè vào tệp đích hiện tại: <strong className="text-slate-200">{existingTranslation?.target_name}</strong></span>
+              </span>
+              <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-emerald-400 font-mono border border-emerald-500/20">Giữ nguyên Link</span>
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -565,10 +877,20 @@ export const GoogleTranslateConfigModal: React.FC<GoogleTranslateConfigModalProp
             type="button"
             onClick={handleStart}
             disabled={isStarting}
-            className="px-5 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-medium flex items-center gap-2 shadow-lg shadow-sky-600/20 transition-all disabled:opacity-50"
+            className={`px-5 py-2 rounded-lg text-white text-xs font-medium flex items-center gap-2 shadow-lg transition-all disabled:opacity-50 ${
+              targetMode === 'update'
+                ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/20'
+                : 'bg-sky-600 hover:bg-sky-500 shadow-sky-600/20'
+            }`}
           >
             <Sparkles className="w-4 h-4" />
-            <span>{isStarting ? 'Đang khởi tạo...' : 'Bắt đầu Dịch (REST API)'}</span>
+            <span>
+              {isStarting
+                ? 'Đang khởi tạo...'
+                : targetMode === 'update'
+                ? 'Đồng bộ & Cập nhật Bản dịch (In-Place)'
+                : 'Bắt đầu Dịch (Tạo bản sao mới)'}
+            </span>
           </button>
         </div>
       </div>

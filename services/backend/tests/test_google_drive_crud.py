@@ -94,7 +94,7 @@ async def test_google_drive_crud_operations():
 async def test_google_drive_view_modes():
     recorded_calls = []
 
-    async def mock_list_files(access_token, folder_id=None, query=None, is_mock=False, shared_drive_id=None, view_mode="my_drive"):
+    async def mock_list_files(access_token, folder_id=None, query=None, is_mock=False, shared_drive_id=None, view_mode="my_drive", **kwargs):
         recorded_calls.append({"folder_id": folder_id, "query": query, "view_mode": view_mode})
         return [{"id": "item-1", "name": f"File in {view_mode}", "type": "doc"}]
 
