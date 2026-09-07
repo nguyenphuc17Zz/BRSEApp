@@ -474,6 +474,76 @@ export const apiClient = {
     return res.data;
   },
 
+  batchDeleteDriveFiles: async (fileIds: string[], accountId?: string): Promise<{ status: string, deleted_count: number, failed_count: number, failed_ids: string[] }> => {
+    const res = await api.post('/integrations/google/drive/files/batch-delete', {
+      file_ids: fileIds,
+      account_id: accountId
+    });
+    return res.data;
+  },
+
+  downloadDriveFile: async (fileId: string, fallbackName?: string, accountId?: string): Promise<string> => {
+    const res = await api.get(`/integrations/google/drive/files/${fileId}/download`, {
+      params: { account_id: accountId },
+      responseType: 'blob'
+    });
+
+    let filename = fallbackName || `drive_file_${fileId}`;
+    const disposition = res.headers['content-disposition'] || res.headers['Content-Disposition'];
+    if (disposition) {
+      const matchUtf8 = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+      const matchStandard = disposition.match(/filename="?([^";]+)"?/i);
+      if (matchUtf8 && matchUtf8[1]) {
+        filename = decodeURIComponent(matchUtf8[1]);
+      } else if (matchStandard && matchStandard[1]) {
+        filename = decodeURIComponent(matchStandard[1]);
+      }
+    }
+
+    const blob = new Blob([res.data]);
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+    return filename;
+  },
+
+  downloadDriveFilesBatch: async (fileIds: string[], accountId?: string): Promise<string> => {
+    const res = await api.post('/integrations/google/drive/files/batch-download', {
+      file_ids: fileIds,
+      account_id: accountId
+    }, {
+      responseType: 'blob'
+    });
+
+    let filename = `drive_download_${new Date().toISOString().slice(0, 10)}.zip`;
+    const disposition = res.headers['content-disposition'] || res.headers['Content-Disposition'];
+    if (disposition) {
+      const matchUtf8 = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+      const matchStandard = disposition.match(/filename="?([^";]+)"?/i);
+      if (matchUtf8 && matchUtf8[1]) {
+        filename = decodeURIComponent(matchUtf8[1]);
+      } else if (matchStandard && matchStandard[1]) {
+        filename = decodeURIComponent(matchStandard[1]);
+      }
+    }
+
+    const blob = new Blob([res.data]);
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+    return filename;
+  },
+
   translateGoogleDoc: async (fileId: string, config: any): Promise<any> => {
     const res = await api.post(`/integrations/google/docs/${fileId}/translate`, config);
     return res.data;

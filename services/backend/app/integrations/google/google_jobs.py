@@ -97,7 +97,9 @@ class GoogleJobManager:
                 )
 
                 # If not obvious from filename, check actual Drive mimeType
-                if not is_office_or_binary and not is_mock:
+                mime = ""
+                f_meta = {}
+                if not is_mock:
                     try:
                         f_meta = await GoogleDriveService.get_file_metadata(token, file_id, is_mock=is_mock)
                         mime = f_meta.get("mimeType", "").lower()
@@ -106,8 +108,18 @@ class GoogleJobManager:
                     except Exception as meta_err:
                         logger.debug(f"Could not verify mimeType for {file_id}: {meta_err}")
 
-                # Route to Hybrid Document Pipeline ONLY if file is an Office/binary file
-                if is_office_or_binary:
+                # For Google Sheets: Google Sheets REST API v4 cannot read, insert, or replace floating images or drawings.
+                # When translate_images is requested, route to the hybrid export pipeline in both create and update modes:
+                # export to .xlsx, translate texts, formulas and embedded images via OCR/inpainting,
+                # and upload back to Google Drive as a native Google Sheet.
+                is_sheet = "sheet" in file_type.lower() or "spreadsheet" in mime or any(title_or_name.endswith(e) for e in (".xlsx", ".xls", ".gsheet"))
+                should_hybrid_sheet = (
+                    is_sheet
+                    and bool(options.get("translate_images", False))
+                )
+
+                # Route to Hybrid Document Pipeline if Office/binary file OR Google Sheet with translate_images enabled
+                if is_office_or_binary or should_hybrid_sheet:
                     await self._run_hybrid_image_pipeline(
                         job_id=job_id,
                         job=job,
@@ -382,19 +394,7 @@ class GoogleJobManager:
                     job.current_stage = f"Đang đồng bộ nội dung cập nhật vào file Google Drive đã có ({copy_id})..."
                     await db.commit()
                     logger.info(f"Target mode is 'update'. Directly applying translations to existing Drive file: {copy_id}")
-                    try:
-                        if "sheet" in file_type or "slide" in file_type or "presentation" in file_type:
-                            await GoogleDriveService.sync_existing_file_content(
-                                access_token=token,
-                                source_file_id=file_id,
-                                target_file_id=copy_id,
-                                file_type=file_type,
-                                is_mock=is_mock
-                            )
-                        else:
-                            logger.info(f"Google Doc in-place sync ({copy_id}): Preserving native multi-tab layout via Docs REST API.")
-                    except Exception as sync_err:
-                        logger.warning(f"Could not sync layout to existing file {copy_id}: {sync_err}")
+                    logger.info(f"Native in-place sync ({copy_id}): Preserving layout via REST API for {file_type}.")
                 else:
                     # 1. Create safe copy in Drive
                     copy_res = await GoogleDriveService.create_translated_copy(
@@ -408,23 +408,62 @@ class GoogleJobManager:
 
                 # 2. Apply updates to the copy via format-specific REST API
                 if "sheet" in file_type:
-                    updates = []
-                    for seg in all_segs:
-                        loc = json.loads(seg.location_json or "{}")
-                        text_val = seg.translated_text or seg.source_text
-                        if loc.get("type") == "gsheet_cell":
-                            updates.append({
-                                "sheet": loc.get("sheet", "Sheet1"),
-                                "row": loc.get("row", 0),
-                                "col": loc.get("col", 0),
-                                "translated_text": text_val
-                            })
-                    await GoogleSheetsService.apply_translations_to_copy(
-                        access_token=token,
-                        copy_spreadsheet_id=copy_id,
-                        updates=updates,
-                        is_mock=is_mock
-                    )
+                    if target_mode == "update":
+                        # SOTA Smart Matrix Myers Diff Sync for existing Google Sheet:
+                        prev_segs = []
+                        prev_job = (await db.execute(
+                            select(DocumentJob)
+                            .join(DocumentFile, DocumentJob.document_id == DocumentFile.id)
+                            .where(
+                                DocumentJob.id != job.id,
+                                DocumentJob.status.in_(["completed", "partially_completed"]),
+                                or_(
+                                    DocumentJob.document_id == job.document_id,
+                                    DocumentFile.original_path == doc_file.original_path,
+                                    DocumentJob.output_path.contains(copy_id) if copy_id else False
+                                )
+                            )
+                            .order_by(DocumentJob.created_at.desc())
+                        )).scalars().first()
+                        if prev_job:
+                            prev_segs = (await db.execute(
+                                select(DocumentSegment)
+                                .where(DocumentSegment.job_id == prev_job.id)
+                            )).scalars().all()
+
+                        await GoogleSheetsService.apply_smart_matrix_sync_to_existing_sheet(
+                            access_token=token,
+                            target_spreadsheet_id=copy_id,
+                            segments=all_segs,
+                            previous_segments=prev_segs,
+                            source_spreadsheet_id=file_id,
+                            selected_sheets=options.get("selected_sheets"),
+                            parent_folder_id=options.get("parent_folder_id"),
+                            source_lang=job.source_language or "ja",
+                            target_lang=job.target_language or "vi",
+                            ocr_engine=options.get("ocr_mode", "paddleocr"),
+                            translate_images=options.get("translate_images", True),
+                            provider=provider,
+                            is_mock=is_mock
+                        )
+                    else:
+                        updates = []
+                        for seg in all_segs:
+                            loc = json.loads(seg.location_json or "{}")
+                            text_val = seg.translated_text or seg.source_text
+                            if loc.get("type") == "gsheet_cell":
+                                updates.append({
+                                    "sheet": loc.get("sheet", "Sheet1"),
+                                    "row": loc.get("row", 0),
+                                    "col": loc.get("col", 0),
+                                    "translated_text": text_val
+                                })
+                        await GoogleSheetsService.apply_translations_to_copy(
+                            access_token=token,
+                            copy_spreadsheet_id=copy_id,
+                            updates=updates,
+                            is_mock=is_mock
+                        )
 
                     # Update sheet titles if translate_sheet_names is enabled (default True)
                     if options.get("translate_sheet_names", True):
@@ -442,21 +481,79 @@ class GoogleJobManager:
                         except Exception as sheet_err:
                             logger.warning(f"Could not update sheet titles for copy {copy_id}: {sheet_err}")
                 elif "slide" in file_type:
-                    slide_updates = []
-                    for seg in all_segs:
-                        token_map = json.loads(seg.protected_tokens_json or "{}")
-                        raw_src, _ = TokenProtector.restore_tokens(seg.source_text, token_map)
-                        if seg.translated_text and raw_src != seg.translated_text:
-                            slide_updates.append({
-                                "source_text": raw_src,
-                                "translated_text": seg.translated_text
-                            })
-                    await GoogleSlidesService.apply_translations_to_copy(
-                        access_token=token,
-                        copy_presentation_id=copy_id,
-                        translations=slide_updates,
-                        is_mock=is_mock
-                    )
+                    if target_mode == "update":
+                        # SOTA Smart Slide Myers Diff Sync for existing Google Slides:
+                        prev_segs = []
+                        prev_job = (await db.execute(
+                            select(DocumentJob)
+                            .join(DocumentFile, DocumentJob.document_id == DocumentFile.id)
+                            .where(
+                                DocumentJob.id != job.id,
+                                DocumentJob.status.in_(["completed", "partially_completed"]),
+                                or_(
+                                    DocumentJob.document_id == job.document_id,
+                                    DocumentFile.original_path == doc_file.original_path,
+                                    DocumentJob.output_path.contains(copy_id) if copy_id else False
+                                )
+                            )
+                            .order_by(DocumentJob.created_at.desc())
+                        )).scalars().first()
+                        if prev_job:
+                            prev_segs = (await db.execute(
+                                select(DocumentSegment)
+                                .where(DocumentSegment.job_id == prev_job.id)
+                            )).scalars().all()
+
+                        await GoogleSlidesService.apply_smart_slide_sync_to_existing_presentation(
+                            access_token=token,
+                            target_presentation_id=copy_id,
+                            segments=all_segs,
+                            previous_segments=prev_segs,
+                            source_presentation_id=file_id,
+                            parent_folder_id=options.get("parent_folder_id"),
+                            source_lang=job.source_language or "vi",
+                            target_lang=job.target_language or "ja",
+                            ocr_engine=options.get("ocr_mode", "paddleocr"),
+                            translate_images=options.get("translate_images", True),
+                            provider=provider,
+                            is_mock=is_mock
+                        )
+                    else:
+                        slide_updates = []
+                        for seg in all_segs:
+                            loc = json.loads(seg.location_json or "{}")
+                            token_map = json.loads(seg.protected_tokens_json or "{}")
+                            raw_src, _ = TokenProtector.restore_tokens(seg.source_text, token_map)
+                            if seg.translated_text and raw_src != seg.translated_text:
+                                slide_updates.append({
+                                    "source_text": raw_src,
+                                    "translated_text": seg.translated_text,
+                                    "slide_id": loc.get("slide_id")
+                                })
+                        await GoogleSlidesService.apply_translations_to_copy(
+                            access_token=token,
+                            copy_presentation_id=copy_id,
+                            translations=slide_updates,
+                            is_mock=is_mock
+                        )
+
+                        # OCR image translation for newly created presentation copy
+                        if options.get("translate_images", True):
+                            job.current_stage = "Đang dịch hình ảnh và sơ đồ trong bài thuyết trình..."
+                            await db.commit()
+                            try:
+                                await GoogleSlidesService.translate_embedded_images_in_presentation(
+                                    access_token=token,
+                                    presentation_id=copy_id,
+                                    parent_folder_id=options.get("parent_folder_id"),
+                                    source_lang=job.source_language or "vi",
+                                    target_lang=job.target_language or "ja",
+                                    ocr_engine=options.get("ocr_mode", "paddleocr"),
+                                    provider=provider,
+                                    is_mock=is_mock
+                                )
+                            except Exception as img_err:
+                                logger.warning(f"Could not translate embedded images for presentation {copy_id}: {img_err}")
                 else: # gdoc
                     if target_mode == "update":
                         # Smart Delta Sync for existing Google Doc:
@@ -675,7 +772,12 @@ class GoogleJobManager:
         temp_dir = Path("data/temp/google_exports")
         temp_dir.mkdir(parents=True, exist_ok=True)
 
-        clean_title = "".join(c for c in (options.get("title") or doc_file.filename) if c.isalnum() or c in (" ", "-", "_")).strip() or "document"
+        raw_title = options.get("title") or doc_file.filename or "document"
+        for e in (".docx", ".pptx", ".xlsx", ".pdf", ".gdoc", ".gsheet", ".gslide", ".doc", ".xls", ".ppt"):
+            if raw_title.lower().endswith(e):
+                raw_title = raw_title[:-len(e)]
+                break
+        clean_title = "".join(c for c in raw_title if c.isalnum() or c in (" ", "-", "_")).strip() or "document"
         temp_input_path = temp_dir / f"{job.id}_src_{clean_title}.{ext}"
         temp_output_path = temp_dir / f"{job.id}_out_{clean_title}.{ext}"
 
@@ -747,6 +849,68 @@ class GoogleJobManager:
                 .order_by(DocumentSegment.segment_index.asc())
             )
             pending_segments = pending_segs_res.scalars().all()
+
+            # Translation Memory / Delta Pre-matching (0 tokens for existing segments)
+            tm_map: Dict[str, str] = {}
+            if pending_segments:
+                try:
+                    from app.db.models import TranslationMemory
+                    from sqlalchemy import or_
+
+                    tm_query = select(TranslationMemory.source_text, TranslationMemory.target_text).where(
+                        TranslationMemory.source_language == job.source_language,
+                        TranslationMemory.target_language == job.target_language
+                    )
+                    if job.project_id:
+                        tm_query = tm_query.where(
+                            or_(
+                                TranslationMemory.project_id == job.project_id,
+                                TranslationMemory.project_id.is_(None)
+                            )
+                        )
+                    tm_res = (await db.execute(tm_query)).all()
+                    for s_txt, t_txt in tm_res:
+                        if s_txt and t_txt:
+                            tm_map[s_txt.strip()] = t_txt.strip()
+
+                    prev_seg_query = (
+                        select(DocumentSegment.source_text, DocumentSegment.translated_text)
+                        .join(DocumentJob, DocumentSegment.job_id == DocumentJob.id)
+                        .join(DocumentFile, DocumentJob.document_id == DocumentFile.id)
+                        .where(
+                            DocumentFile.original_path == file_id,
+                            DocumentJob.id != job.id,
+                            DocumentJob.target_language == job.target_language,
+                            DocumentSegment.status.in_(["translated", "user_edited"])
+                        )
+                        .order_by(DocumentSegment.created_at.desc())
+                    )
+                    prev_segs = (await db.execute(prev_seg_query)).all()
+                    for s_txt, t_txt in prev_segs:
+                        if s_txt and t_txt and s_txt.strip() not in tm_map:
+                            tm_map[s_txt.strip()] = t_txt.strip()
+
+                    tm_hits = 0
+                    for seg in pending_segments:
+                        s_clean = (seg.source_text or "").strip()
+                        if s_clean and s_clean in tm_map:
+                            seg.translated_text = tm_map[s_clean]
+                            seg.status = "translated"
+                            seg.context_hint = "TM_EXACT_MATCH"
+                            tm_hits += 1
+
+                    if tm_hits > 0:
+                        logger.info(f"Hybrid Pipeline TM match: {tm_hits}/{len(pending_segments)} segments reused without LLM tokens.")
+                        completed_cnt = (await db.execute(
+                            select(DocumentSegment).where(DocumentSegment.job_id == job_id, DocumentSegment.status.in_(["translated", "user_edited"]))
+                        )).scalars().all()
+                        job.completed_segments = len(completed_cnt)
+                        job.progress_percent = round((job.completed_segments / max(1, job.total_segments)) * 75, 1)
+                        await db.commit()
+                        pending_segments = [s for s in pending_segments if s.status == "pending"]
+
+                except Exception as tm_err:
+                    logger.warning(f"Notice during Hybrid TM matching: {tm_err}")
 
             provider = provider_registry.get_provider(job.provider) or provider_registry.get_provider("gemini")
             translation_cache: Dict[str, str] = {}
@@ -910,30 +1074,82 @@ class GoogleJobManager:
 
             content_bytes = temp_output_path.read_bytes() if temp_output_path.exists() else b"Mock output content"
 
-            upload_res = await GoogleDriveService.upload_file(
-                access_token=token,
-                filename=copy_name,
-                content_bytes=content_bytes,
-                mime_type=content_mime,
-                parent_folder_id=options.get("parent_folder_id"),
-                target_mime_type=target_google_mime,
-                is_mock=is_mock
-            )
+            target_parent_id = options.get("parent_folder_id")
+            if not target_parent_id and not is_mock:
+                try:
+                    f_meta = await GoogleDriveService.get_file_metadata(token, file_id, is_mock=is_mock)
+                    parents = f_meta.get("parents") or []
+                    if parents:
+                        target_parent_id = parents[0]
+                except Exception as p_err:
+                    logger.debug(f"Could not resolve parent folder for file {file_id}: {p_err}")
 
-            uploaded_id = upload_res.get("id", f"copy_{file_id}_{target_lang}")
+            target_mode = options.get("target_mode", "create")
+            target_file_id = options.get("target_file_id")
+
+            if target_mode == "update" and target_file_id:
+                upload_res = await GoogleDriveService.update_file_content(
+                    access_token=token,
+                    file_id=target_file_id,
+                    content_bytes=content_bytes,
+                    mime_type=content_mime,
+                    is_mock=is_mock
+                )
+                uploaded_id = target_file_id
+            else:
+                upload_res = await GoogleDriveService.upload_file(
+                    access_token=token,
+                    filename=copy_name,
+                    content_bytes=content_bytes,
+                    mime_type=content_mime,
+                    parent_folder_id=target_parent_id,
+                    target_mime_type=target_google_mime,
+                    is_mock=is_mock
+                )
+                uploaded_id = upload_res.get("id", f"copy_{file_id}_{target_lang}")
 
             # Finalize Job
             job.progress_percent = 100.0
             job.output_filename = copy_name
             job.output_path = f"https://drive.google.com/open?id={uploaded_id}"
-
             if job.failed_segments > 0:
                 warning_suffix = f" với cảnh báo ({job.completed_segments}/{job.total_segments} phân đoạn thành công)."
                 job.status = "partially_completed"
                 job.current_stage = f"Hoàn tất{' (kèm xử lý ảnh OCR)' if should_ocr else ''}{warning_suffix}"
             else:
                 job.status = "completed"
-                job.current_stage = f"Dịch thành công{' (kèm xử lý ảnh OCR)' if should_ocr else ''}! Đã tạo bản sao an toàn '{copy_name}' trên Google Drive."
+                if target_mode == "update":
+                    job.current_stage = f"Đồng bộ thành công{' (kèm xử lý ảnh OCR)' if should_ocr else ''}! Đã cập nhật bản sao mới nhất '{copy_name}' trên Google Drive."
+                else:
+                    job.current_stage = f"Dịch thành công{' (kèm xử lý ảnh OCR)' if should_ocr else ''}! Đã tạo bản sao an toàn '{copy_name}' trên Google Drive."
+
+            # Auto-save newly translated segments into TranslationMemory
+            try:
+                from app.db.models import TranslationMemory
+                new_tm_entries = []
+                for s in all_segs:
+                    if s.status in ("translated", "user_edited") and s.source_text and s.translated_text:
+                        s_clean = s.source_text.strip()
+                        if s_clean and s_clean not in tm_map:
+                            new_tm_entries.append(
+                                TranslationMemory(
+                                    project_id=job.project_id,
+                                    source_text=s_clean,
+                                    target_text=s.translated_text.strip(),
+                                    source_language=job.source_language or "ja",
+                                    target_language=job.target_language or "vi",
+                                    style=job.style or "business",
+                                    provider=job.provider,
+                                    model=job.model
+                                )
+                            )
+                            tm_map[s_clean] = s.translated_text.strip()
+                if new_tm_entries:
+                    db.add_all(new_tm_entries)
+                    await db.commit()
+                    logger.info(f"Saved {len(new_tm_entries)} new hybrid segments into TranslationMemory.")
+            except Exception as save_tm_err:
+                logger.debug(f"Notice saving hybrid segments to TranslationMemory: {save_tm_err}")
 
             db.add(IntegrationAuditLog(
                 integration="google",

@@ -3,7 +3,8 @@ import json
 import re
 from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Body, UploadFile, File, Form
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
+from urllib.parse import quote
 import httpx
 from pydantic import BaseModel
 from sqlalchemy import select, func
@@ -85,6 +86,14 @@ class DriveCreateFolderRequest(BaseModel):
 
 class DriveRenameRequest(BaseModel):
     new_name: str
+    account_id: Optional[str] = None
+
+class DriveBatchDeleteRequest(BaseModel):
+    file_ids: List[str]
+    account_id: Optional[str] = None
+
+class DriveBatchDownloadRequest(BaseModel):
+    file_ids: List[str]
     account_id: Optional[str] = None
 
 async def get_target_google_account(db: AsyncSession, account_id: Optional[str] = None) -> IntegrationAccount:
@@ -766,6 +775,74 @@ async def delete_drive_file(
         return res
     except Exception as e:
         logger.error(f"Failed to delete file on Drive: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/drive/files/batch-delete")
+async def batch_delete_drive_files(
+    req: DriveBatchDeleteRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """Deletes multiple files or folders from Google Drive."""
+    acc = await get_target_google_account(db, req.account_id)
+    token = await GoogleWorkspaceClient.get_valid_access_token(db, acc.id)
+    try:
+        res = await GoogleDriveService.delete_files_batch(
+            access_token=token,
+            file_ids=req.file_ids,
+            is_mock=acc.is_mock
+        )
+        return res
+    except Exception as e:
+        logger.error(f"Failed to batch delete files on Drive: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/drive/files/{file_id}/download")
+async def download_drive_file(
+    file_id: str,
+    account_id: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db)
+):
+    """Downloads or exports a single file from Google Drive."""
+    acc = await get_target_google_account(db, account_id)
+    token = await GoogleWorkspaceClient.get_valid_access_token(db, acc.id)
+    try:
+        content_bytes, filename, mime_type = await GoogleDriveService.export_or_download_file_bytes(
+            access_token=token,
+            file_id=file_id,
+            is_mock=acc.is_mock
+        )
+        encoded_filename = quote(filename)
+        headers = {
+            "Content-Disposition": f"attachment; filename=\"{encoded_filename}\"; filename*=UTF-8''{encoded_filename}",
+            "Access-Control-Expose-Headers": "Content-Disposition"
+        }
+        return Response(content=content_bytes, media_type=mime_type, headers=headers)
+    except Exception as e:
+        logger.error(f"Failed to download Drive file {file_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/drive/files/batch-download")
+async def batch_download_drive_files(
+    req: DriveBatchDownloadRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """Downloads multiple files from Google Drive and packages them into a ZIP archive."""
+    acc = await get_target_google_account(db, req.account_id)
+    token = await GoogleWorkspaceClient.get_valid_access_token(db, acc.id)
+    try:
+        zip_bytes, zip_filename = await GoogleDriveService.download_files_as_zip(
+            access_token=token,
+            file_ids=req.file_ids,
+            is_mock=acc.is_mock
+        )
+        encoded_filename = quote(zip_filename)
+        headers = {
+            "Content-Disposition": f"attachment; filename=\"{encoded_filename}\"; filename*=UTF-8''{encoded_filename}",
+            "Access-Control-Expose-Headers": "Content-Disposition"
+        }
+        return Response(content=zip_bytes, media_type="application/zip", headers=headers)
+    except Exception as e:
+        logger.error(f"Failed to batch download Drive files: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/files/{file_id}/meta")

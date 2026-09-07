@@ -156,3 +156,89 @@ async def test_google_drive_file_type_categorization():
         assert by_id["11"] == "folder"
 
 
+@pytest.mark.asyncio
+async def test_google_drive_batch_delete():
+    deleted_ids = []
+
+    async def mock_delete_file(access_token, file_id, is_mock=False):
+        deleted_ids.append(file_id)
+        return {"status": "deleted", "id": file_id}
+
+    with patch.object(GoogleWorkspaceClient, "get_valid_access_token", new_callable=AsyncMock, return_value="valid_token"), \
+         patch.object(GoogleDriveService, "delete_file", side_effect=mock_delete_file):
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            # Test batch delete with 3 files
+            res = await ac.post(
+                "/api/integrations/google/drive/files/batch-delete",
+                json={"file_ids": ["fid-1", "fid-2", "fid-3"]}
+            )
+            assert res.status_code == 200
+            data = res.json()
+            assert data["status"] == "success"
+            assert data["deleted_count"] == 3
+            assert data["failed_count"] == 0
+            assert set(deleted_ids) == {"fid-1", "fid-2", "fid-3"}
+
+            # Test empty list
+            res_empty = await ac.post(
+                "/api/integrations/google/drive/files/batch-delete",
+                json={"file_ids": []}
+            )
+            assert res_empty.status_code == 200
+            assert res_empty.json()["deleted_count"] == 0
+
+@pytest.mark.asyncio
+async def test_google_drive_download_single():
+    mock_bytes = b"Mock exported docx binary bytes"
+    mock_name = "BaoCao_Q3_2026.docx"
+    mock_mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+    with patch.object(GoogleWorkspaceClient, "get_valid_access_token", new_callable=AsyncMock, return_value="valid_token"), \
+         patch.object(GoogleDriveService, "export_or_download_file_bytes", new_callable=AsyncMock, return_value=(mock_bytes, mock_name, mock_mime)):
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            res = await ac.get("/api/integrations/google/drive/files/doc-123/download")
+            assert res.status_code == 200
+            assert res.content == mock_bytes
+            assert "Content-Disposition" in res.headers
+            assert "BaoCao_Q3_2026.docx" in res.headers["Content-Disposition"]
+            assert res.headers["Content-Type"].startswith("application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+@pytest.mark.asyncio
+async def test_google_drive_batch_download_zip():
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("File1.docx", b"Content of file 1")
+        zf.writestr("File2.xlsx", b"Content of file 2")
+    zip_bytes = buf.getvalue()
+    zip_name = "drive_download_20260907_120000.zip"
+
+    with patch.object(GoogleWorkspaceClient, "get_valid_access_token", new_callable=AsyncMock, return_value="valid_token"), \
+         patch.object(GoogleDriveService, "download_files_as_zip", new_callable=AsyncMock, return_value=(zip_bytes, zip_name)):
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            res = await ac.post(
+                "/api/integrations/google/drive/files/batch-download",
+                json={"file_ids": ["f-1", "f-2"]}
+            )
+            assert res.status_code == 200
+            assert res.headers["Content-Type"] == "application/zip"
+            assert "Content-Disposition" in res.headers
+            assert "drive_download_20260907_120000.zip" in res.headers["Content-Disposition"]
+
+            # Verify it's a valid ZIP
+            zf_check = zipfile.ZipFile(io.BytesIO(res.content))
+            namelist = zf_check.namelist()
+            assert "File1.docx" in namelist
+            assert "File2.xlsx" in namelist
+
+
+
+

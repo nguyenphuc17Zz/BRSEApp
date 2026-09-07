@@ -337,16 +337,43 @@ class GoogleDocsService:
 
         # 1. Fetch target doc AST
         target_doc = await cls.get_document_content(access_token, target_document_id, is_mock=is_mock)
-        target_blocks = GoogleDocsASTParser.parse_document(target_doc)
 
         # 2. Fetch or construct source AST blocks
+        source_doc = None
         source_blocks: List[ASTBlock] = []
         if source_document_id:
             try:
                 source_doc = await cls.get_document_content(access_token, source_document_id, is_mock=is_mock)
-                source_blocks = GoogleDocsASTParser.parse_document(source_doc)
             except Exception as src_err:
                 logger.warning(f"Could not parse source document AST ({source_document_id}): {src_err}")
+
+        # 3. Two-Phase Tab Synchronization (Phase 1: Tab Reconciliation)
+        src_tabs = (source_doc or {}).get("tabs", [])
+        tgt_tabs = target_doc.get("tabs", [])
+        tab_map: Dict[str, str] = {}
+        if src_tabs and tgt_tabs:
+            tab_map = await cls.sync_document_tabs(
+                access_token=access_token,
+                target_document_id=target_document_id,
+                source_tabs=src_tabs,
+                target_tabs=tgt_tabs,
+                source_lang=source_lang,
+                target_lang=target_lang,
+                provider=provider,
+                is_mock=is_mock
+            )
+            flat_src_tabs = cls._flatten_tabs(src_tabs)
+            flat_tgt_tabs = cls._flatten_tabs(tgt_tabs)
+            if any(s.get("tabProperties", {}).get("tabId") not in [t.get("tabProperties", {}).get("tabId") for t in flat_tgt_tabs] for s in flat_src_tabs):
+                target_doc = await cls.get_document_content(access_token, target_document_id, is_mock=is_mock)
+
+        target_blocks = GoogleDocsASTParser.parse_document(target_doc)
+        if source_doc:
+            source_blocks = GoogleDocsASTParser.parse_document(source_doc)
+            if tab_map:
+                for b in source_blocks:
+                    if b.tab_id and b.tab_id in tab_map:
+                        b.tab_id = tab_map[b.tab_id]
 
         if not source_blocks and segments:
             # Build ASTBlocks from segments
@@ -354,6 +381,8 @@ class GoogleDocsService:
             for i, seg in enumerate(segments):
                 loc = json.loads(getattr(seg, "location_json", "{}") or "{}")
                 tab_id = loc.get("tab_id")
+                if tab_map and tab_id and tab_id in tab_map:
+                    tab_id = tab_map[tab_id]
                 token_map = json.loads(getattr(seg, "protected_tokens_json", "{}") or "{}")
                 raw_src, _ = TokenProtector.restore_tokens(getattr(seg, "source_text", "") or "", token_map)
                 cleaned = raw_src.strip()
@@ -501,6 +530,165 @@ class GoogleDocsService:
                     except Exception as del_err:
                         logger.debug(f"Could not delete temp image file {fid}: {del_err}")
 
+
+    @classmethod
+    async def sync_document_tabs(
+        cls,
+        access_token: str,
+        target_document_id: str,
+        source_tabs: List[Dict[str, Any]],
+        target_tabs: List[Dict[str, Any]],
+        source_lang: str = "vi",
+        target_lang: str = "ja",
+        provider: Any = None,
+        model: Optional[str] = None,
+        is_mock: bool = False
+    ) -> Dict[str, str]:
+        """Two-Phase Tab Structural Reconciliation for Google Docs:
+        1. Compares Source Tabs against Target Tabs using Multi-Stage Alignment (tabId -> title -> index).
+        2. Detects newly added source tabs -> translates title -> calls addDocumentTab -> obtains new target_tab_id.
+        3. Detects deleted target tabs -> calls deleteTab (preserving at least one tab).
+        Returns:
+            src_to_tgt_tab_map: Dict[str, str] mapping each source tabId to its corresponding target tabId.
+        """
+        src_to_tgt_tab_map: Dict[str, str] = {}
+        if is_mock or not source_tabs or not target_tabs:
+            for s in (source_tabs or []):
+                sid = s.get("tabProperties", {}).get("tabId")
+                if sid:
+                    src_to_tgt_tab_map[sid] = sid
+            return src_to_tgt_tab_map
+
+        headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+
+        flat_src = cls._flatten_tabs(source_tabs)
+        flat_tgt = cls._flatten_tabs(target_tabs)
+
+        tgt_by_id = {t.get("tabProperties", {}).get("tabId"): t for t in flat_tgt if t.get("tabProperties", {}).get("tabId")}
+        tgt_by_title = {t.get("tabProperties", {}).get("title"): t for t in flat_tgt if t.get("tabProperties", {}).get("title")}
+        tgt_by_index = {t.get("tabProperties", {}).get("index"): t for t in flat_tgt if t.get("tabProperties", {}).get("index") is not None}
+
+        matched_src_ids: Set[str] = set()
+        matched_tgt_ids: Set[str] = set()
+
+        # Pass 1: Match by exact tabId (Primary Key - preserved across Drive copies)
+        for s in flat_src:
+            s_props = s.get("tabProperties", {})
+            s_id = s_props.get("tabId")
+            if s_id and s_id in tgt_by_id:
+                t = tgt_by_id[s_id]
+                t_id = t.get("tabProperties", {}).get("tabId")
+                src_to_tgt_tab_map[s_id] = t_id
+                matched_src_ids.add(s_id)
+                matched_tgt_ids.add(t_id)
+
+        # Pass 2: Match by exact title
+        for s in flat_src:
+            s_props = s.get("tabProperties", {})
+            s_id = s_props.get("tabId")
+            s_title = s_props.get("title")
+            if s_id and s_id not in matched_src_ids and s_title in tgt_by_title:
+                t = tgt_by_title[s_title]
+                t_id = t.get("tabProperties", {}).get("tabId")
+                if t_id not in matched_tgt_ids:
+                    src_to_tgt_tab_map[s_id] = t_id
+                    matched_src_ids.add(s_id)
+                    matched_tgt_ids.add(t_id)
+
+        # Pass 3: Match by positional index ONLY if no tabId matches were found across the document
+        if not matched_src_ids:
+            for s in flat_src:
+                s_props = s.get("tabProperties", {})
+                s_id = s_props.get("tabId")
+                s_idx = s_props.get("index")
+                if s_id and s_id not in matched_src_ids and s_idx in tgt_by_index:
+                    t = tgt_by_index[s_idx]
+                    t_id = t.get("tabProperties", {}).get("tabId")
+                    if t_id not in matched_tgt_ids:
+                        src_to_tgt_tab_map[s_id] = t_id
+                        matched_src_ids.add(s_id)
+                        matched_tgt_ids.add(t_id)
+
+        # 1. Identify newly added source tabs
+        added_source_tabs = [s for s in flat_src if s.get("tabProperties", {}).get("tabId") not in matched_src_ids]
+
+        # 2. Identify obsolete target tabs to delete
+        deleted_target_tabs = [t for t in flat_tgt if t.get("tabProperties", {}).get("tabId") not in matched_tgt_ids]
+
+        # A. Execute addDocumentTab for new tabs
+        if added_source_tabs:
+            add_requests: List[Dict[str, Any]] = []
+            add_src_ids: List[str] = []
+
+            for s in added_source_tabs:
+                s_props = s.get("tabProperties", {})
+                s_id = s_props.get("tabId")
+                orig_title = s_props.get("title", "New Tab")
+                trans_title = apply_smart_title_fallback(orig_title, source_lang, target_lang)
+
+                tab_props: Dict[str, Any] = {
+                    "title": trans_title,
+                    "index": s_props.get("index", len(flat_tgt) + len(add_requests))
+                }
+                if s_props.get("iconEmoji"):
+                    tab_props["iconEmoji"] = s_props.get("iconEmoji")
+                if s_props.get("parentTabId") and s_props.get("parentTabId") in src_to_tgt_tab_map:
+                    tab_props["parentTabId"] = src_to_tgt_tab_map[s_props["parentTabId"]]
+
+                add_requests.append({
+                    "addDocumentTab": {
+                        "tabProperties": tab_props
+                    }
+                })
+                add_src_ids.append(s_id)
+
+            logger.info(f"Two-Phase Tab Sync: Executing {len(add_requests)} addDocumentTab requests on Google Doc {target_document_id}")
+            async with httpx.AsyncClient(timeout=30.0) as http:
+                resp = await http.post(
+                    f"{DOCS_API_BASE}/{target_document_id}:batchUpdate",
+                    headers=headers,
+                    json={"requests": add_requests}
+                )
+                if resp.status_code == 200:
+                    resp_json = resp.json()
+                    import inspect
+                    if inspect.iscoroutine(resp_json):
+                        resp_json = await resp_json
+                    replies = resp_json.get("replies", [])
+                    for idx, reply in enumerate(replies):
+                        add_reply = reply.get("addDocumentTab", {})
+                        new_tab_props = add_reply.get("tabProperties", {})
+                        new_tab_id = new_tab_props.get("tabId")
+                        if new_tab_id and idx < len(add_src_ids):
+                            src_id = add_src_ids[idx]
+                            src_to_tgt_tab_map[src_id] = new_tab_id
+                            logger.info(f"Two-Phase Tab Sync: Mapped source tab '{src_id}' -> newly created target tab '{new_tab_id}'")
+                else:
+                    logger.warning(f"Failed to add document tabs to Google Doc {target_document_id}: {resp.text}")
+
+        # B. Execute deleteTab for obsolete target tabs (guaranteeing at least one tab remains)
+        if deleted_target_tabs and (len(flat_tgt) - len(deleted_target_tabs) >= 1):
+            del_requests: List[Dict[str, Any]] = []
+            for t in deleted_target_tabs:
+                t_id = t.get("tabProperties", {}).get("tabId")
+                if t_id:
+                    del_requests.append({
+                        "deleteTab": {
+                            "tabId": t_id
+                        }
+                    })
+            if del_requests:
+                logger.info(f"Two-Phase Tab Sync: Executing {len(del_requests)} deleteTab requests on Google Doc {target_document_id}")
+                async with httpx.AsyncClient(timeout=30.0) as http:
+                    del_resp = await http.post(
+                        f"{DOCS_API_BASE}/{target_document_id}:batchUpdate",
+                        headers=headers,
+                        json={"requests": del_requests}
+                    )
+                    if del_resp.status_code != 200:
+                        logger.warning(f"Failed to delete obsolete tabs on Google Doc {target_document_id}: {del_resp.text}")
+
+        return src_to_tgt_tab_map
 
     @classmethod
     async def update_tab_titles(

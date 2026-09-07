@@ -108,7 +108,8 @@ class GoogleDocsASTParser:
         if raw_tabs:
             flat_tabs = cls._flatten_tabs(raw_tabs)
             for tab in flat_tabs:
-                tab_id = tab.get("tabProperties", {}).get("tabId")
+                tab_props = tab.get("tabProperties", {})
+                tab_id = tab_props.get("tabId")
                 doc_tab = tab.get("documentTab", {})
                 body = doc_tab.get("body", {})
                 inline_objs = doc_tab.get("inlineObjects", {})
@@ -117,6 +118,11 @@ class GoogleDocsASTParser:
                     tab_id=tab_id,
                     inline_objects=inline_objs
                 )
+                for b in tab_blocks:
+                    b.metadata["tab_title"] = tab_props.get("title")
+                    b.metadata["tab_index"] = tab_props.get("index")
+                    if tab_props.get("iconEmoji"):
+                        b.metadata["tab_icon_emoji"] = tab_props.get("iconEmoji")
                 blocks.extend(tab_blocks)
         else:
             body = doc_data.get("body", {})
@@ -582,14 +588,20 @@ class ASTBlockMyersDiffEngine:
                         break
 
             # 3. Default to tab last index or top (1) if it's the very first block
+            use_eos = False
             if anchor_idx is None:
-                if s_idx == 0:
+                if not tgt_blocks:
                     anchor_idx = 1
-                elif tgt_blocks:
-                    anchor_idx = tgt_blocks[-1].end_index
+                    use_eos = True
+                elif s_idx == 0:
+                    anchor_idx = 1
                 else:
-                    anchor_idx = 1
-                logger.info(f"SOTA AST Sync: INSERT fallback anchor at {anchor_idx}")
+                    anchor_idx = tgt_blocks[-1].end_index
+                logger.info(f"SOTA AST Sync: INSERT fallback anchor at {anchor_idx} (use_eos={use_eos})")
+
+            op_meta = dict(s_block.metadata)
+            if use_eos:
+                op_meta["end_of_segment"] = True
 
             ops.append(
                 DiffOperation(
@@ -599,6 +611,7 @@ class ASTBlockMyersDiffEngine:
                     new_text=s_trans,
                     target_anchor_index=anchor_idx,
                     style_payload={"paragraphStyle": s_block.paragraph_style, "textStyle": s_block.text_style},
+                    metadata=op_meta,
                 )
             )
 
@@ -825,74 +838,115 @@ class ReverseIndexBatchPlanner:
                     # Inline image insertion
                     img_uri = op.metadata.get("image_uri") or op.source_block.metadata.get("content_uri")
                     if img_uri:
+                        size = op.metadata.get("size") or op.source_block.metadata.get("size")
+                        if op.metadata.get("end_of_segment"):
+                            eos_loc: Dict[str, Any] = {}
+                            if tab_id:
+                                eos_loc["tabId"] = tab_id
+                            img_req: Dict[str, Any] = {
+                                "endOfSegmentLocation": eos_loc,
+                                "uri": img_uri,
+                            }
+                            if size and isinstance(size, dict) and "width" in size and "height" in size:
+                                img_req["objectSize"] = {
+                                    "width": size["width"],
+                                    "height": size["height"],
+                                }
+                            index_requests.append({
+                                "_sort_index": -1,
+                                "_seq": op.source_block.block_index if op.source_block else 0,
+                                "request": {
+                                    "insertInlineImage": img_req
+                                }
+                            })
+                        else:
+                            loc = {"index": op.target_anchor_index}
+                            if tab_id:
+                                loc["tabId"] = tab_id
+
+                            img_req = {
+                                "location": loc,
+                                "uri": img_uri,
+                            }
+                            if size and isinstance(size, dict) and "width" in size and "height" in size:
+                                img_req["objectSize"] = {
+                                    "width": size["width"],
+                                    "height": size["height"],
+                                }
+
+                            # First insert paragraph break to host the image
+                            index_requests.append({
+                                "_sort_index": op.target_anchor_index,
+                                "_seq": op.source_block.block_index if op.source_block else 0,
+                                "request": {
+                                    "insertText": {
+                                        "location": loc,
+                                        "text": "\n",
+                                    }
+                                }
+                            })
+                            # Then insert the inline image
+                            index_requests.append({
+                                "_sort_index": op.target_anchor_index,
+                                "_seq": op.source_block.block_index if op.source_block else 0,
+                                "request": {
+                                    "insertInlineImage": img_req
+                                }
+                            })
+                else:
+                    text_to_insert = op.new_text + "\n\n"
+                    if op.metadata.get("end_of_segment"):
+                        eos_loc = {}
+                        if tab_id:
+                            eos_loc["tabId"] = tab_id
+                        insert_req = {
+                            "_sort_index": -1,
+                            "_seq": op.source_block.block_index if op.source_block else 0,
+                            "request": {
+                                "insertText": {
+                                    "endOfSegmentLocation": eos_loc,
+                                    "text": text_to_insert,
+                                }
+                            }
+                        }
+                        index_requests.append(insert_req)
+                    else:
                         loc = {"index": op.target_anchor_index}
                         if tab_id:
                             loc["tabId"] = tab_id
 
-                        img_req: Dict[str, Any] = {
-                            "location": loc,
-                            "uri": img_uri,
-                        }
-                        size = op.metadata.get("size") or op.source_block.metadata.get("size")
-                        if size and isinstance(size, dict) and "width" in size and "height" in size:
-                            img_req["objectSize"] = {
-                                "width": size["width"],
-                                "height": size["height"],
-                            }
-
-                        # First insert paragraph break to host the image
-                        index_requests.append({
+                        insert_req = {
                             "_sort_index": op.target_anchor_index,
+                            "_seq": op.source_block.block_index if op.source_block else 0,
                             "request": {
                                 "insertText": {
                                     "location": loc,
-                                    "text": "\n",
+                                    "text": text_to_insert,
                                 }
                             }
-                        })
-                        # Then insert the inline image
-                        index_requests.append({
-                            "_sort_index": op.target_anchor_index,
-                            "request": {
-                                "insertInlineImage": img_req
-                            }
-                        })
-                else:
-                    loc = {"index": op.target_anchor_index}
-                    if tab_id:
-                        loc["tabId"] = tab_id
-
-                    text_to_insert = op.new_text + "\n\n"
-                    insert_req = {
-                        "_sort_index": op.target_anchor_index,
-                        "request": {
-                            "insertText": {
-                                "location": loc,
-                                "text": text_to_insert,
-                            }
                         }
-                    }
-                    index_requests.append(insert_req)
+                        index_requests.append(insert_req)
 
-                    # If source block was a heading, format the inserted text with updateParagraphStyle
-                    if op.source_block and op.source_block.is_heading:
-                        named_style = op.source_block.paragraph_style.get("namedStyleType", "HEADING_1")
-                        range_dict = {
-                            "startIndex": op.target_anchor_index,
-                            "endIndex": op.target_anchor_index + len(op.new_text),
-                        }
-                        if tab_id:
-                            range_dict["tabId"] = tab_id
-                        index_requests.append({
-                            "_sort_index": op.target_anchor_index,
-                            "request": {
-                                "updateParagraphStyle": {
-                                    "range": range_dict,
-                                    "paragraphStyle": {"namedStyleType": named_style},
-                                    "fields": "namedStyleType",
+                        # If source block was a heading, format the inserted text with updateParagraphStyle
+                        if op.source_block and op.source_block.is_heading:
+                            named_style = op.source_block.paragraph_style.get("namedStyleType", "HEADING_1")
+                            range_dict = {
+                                "startIndex": op.target_anchor_index,
+                                "endIndex": op.target_anchor_index + len(op.new_text),
+                            }
+                            if tab_id:
+                                range_dict["tabId"] = tab_id
+                            index_requests.append({
+                                "_sort_index": op.target_anchor_index,
+                                "_seq": op.source_block.block_index if op.source_block else 0,
+                                "request": {
+                                    "updateParagraphStyle": {
+                                        "range": range_dict,
+                                        "paragraphStyle": {"namedStyleType": named_style},
+                                        "fields": "namedStyleType",
+                                    }
                                 }
-                            }
-                        })
+                            })
 
             elif op.op_type == DiffOpType.MOVE_BLOCK:
                 # 1. Remove from old position
@@ -911,6 +965,7 @@ class ReverseIndexBatchPlanner:
                     loc["tabId"] = tab_id
                 index_requests.append({
                     "_sort_index": op.target_anchor_index,
+                    "_seq": op.source_block.block_index if op.source_block else 0,
                     "request": {
                         "insertText": {
                             "location": loc,
@@ -932,6 +987,7 @@ class ReverseIndexBatchPlanner:
                             range_dict["tabId"] = tab_id
                         index_requests.append({
                             "_sort_index": op.target_block.start_index,
+                            "_seq": op.target_block.block_index if op.target_block else 0,
                             "request": {
                                 "updateParagraphStyle": {
                                     "range": range_dict,
@@ -942,7 +998,16 @@ class ReverseIndexBatchPlanner:
                         })
 
         # CRITICAL SOTA GUARANTEE: Sort index requests in DESCENDING order of start index!
-        index_requests.sort(key=lambda item: item["_sort_index"], reverse=True)
+        # Positive indices are sorted descending (higher indices first to preserve low indices).
+        # Negative indices (-1 for endOfSegmentLocation) are executed after positive indices in ascending _seq order.
+        index_requests.sort(
+            key=lambda item: (
+                item["_sort_index"] >= 0,
+                item["_sort_index"],
+                -item.get("_seq", 0)
+            ),
+            reverse=True
+        )
         pure_index_requests = [item["request"] for item in index_requests]
 
         return replace_requests, pure_index_requests

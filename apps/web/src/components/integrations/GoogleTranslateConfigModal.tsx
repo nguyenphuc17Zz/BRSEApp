@@ -531,7 +531,7 @@ export const GoogleTranslateConfigModal: React.FC<GoogleTranslateConfigModalProp
                 <span>Bảo vệ 100% công thức Google Sheets (=VLOOKUP, =SUM, =IF,...)</span>
               </div>
               <p className="text-[11px] text-emerald-400/80 leading-relaxed">
-                Hệ thống tự động bỏ qua toàn bộ ô chứa công thức tính toán và số liệu thuần túy, chỉ dịch các ô văn bản và cập nhật trực tiếp vào bản sao mới.
+                Hệ thống tự động bỏ qua toàn bộ ô chứa công thức tính toán và số liệu thuần túy, dịch các ô văn bản và tự động quét bóc tách dịch toàn bộ chữ trong hình ảnh/sơ đồ chèn trên sheet qua AI OCR & Inpainting.
               </p>
 
               {availableSheets.length > 0 && (
@@ -680,7 +680,7 @@ export const GoogleTranslateConfigModal: React.FC<GoogleTranslateConfigModalProp
                           className="rounded border-slate-700 text-sky-500 focus:ring-sky-400"
                         />
                         <span className="text-[11px] text-slate-300">
-                          Tự động chuyển đổi bản sao đã dịch thành định dạng Google Docs/Slides nguyên bản
+                          Tự động chuyển đổi bản sao đã dịch thành định dạng Google Docs/Sheets/Slides nguyên bản
                         </span>
                       </label>
                     </div>

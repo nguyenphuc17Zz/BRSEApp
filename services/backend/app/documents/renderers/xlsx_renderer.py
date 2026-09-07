@@ -23,10 +23,14 @@ class XlsxRenderer:
     ):
         wb = openpyxl.load_workbook(str(working_path), data_only=False)
         opts = options or {}
+        selected_sheets = opts.get("selected_sheets")
         translate_images = opts.get("translate_images", False)
         ocr_mode = opts.get("ocr_mode", "paddleocr")
 
         for sheet_name in wb.sheetnames:
+            if selected_sheets and sheet_name not in selected_sheets:
+                continue
+
             ws = wb[sheet_name]
             # 1. Update text cells and formula string literals
             for row_idx in range(1, ws.max_row + 1):
@@ -69,6 +73,12 @@ class XlsxRenderer:
                             )
                             if new_bytes and len(new_bytes) > 0:
                                 img._data = lambda nb=new_bytes: nb
+                                try:
+                                    import io
+                                    from PIL import Image as PILImage
+                                    img.ref = PILImage.open(io.BytesIO(new_bytes))
+                                except Exception:
+                                    pass
                     except Exception as img_err:
                         logger.warning(f"Failed to translate embedded image {img_idx + 1} in sheet '{sheet_name}': {img_err}")
 

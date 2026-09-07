@@ -545,5 +545,146 @@ async def test_google_docs_restores_protected_tokens_in_source_text():
         assert "Khóa mã hóa AES-256 GCM an toàn." == matched_item["source_text"]
 
 
+@pytest.mark.asyncio
+async def test_google_translation_sheet_with_images_hybrid():
+    async with async_session_maker() as db:
+        acc = IntegrationAccount(
+            provider="google",
+            account_name="Test Workspace Sheets",
+            email="test_sheet@google.com",
+            encrypted_access_token="mock_token",
+            is_active=True,
+            is_mock=True
+        )
+        db.add(acc)
+
+        doc_file = DocumentFile(
+            filename="Bảng tính kèm hình ảnh",
+            file_type="gsheet",
+            file_size=1024,
+            original_path="gsheet-img-101",
+            detected_language="ja"
+        )
+        db.add(doc_file)
+        await db.commit()
+        await db.refresh(doc_file)
+
+        job = DocumentJob(
+            document_id=doc_file.id,
+            status="queued",
+            source_language="ja",
+            target_language="vi",
+            provider="gemini",
+            model="gemini-3.7-flash",
+            style="Technical",
+            options_json=json.dumps({
+                "file_id": "gsheet-img-101",
+                "file_type": "gsheet",
+                "title": "Bảng tính kèm hình ảnh",
+                "translate_images": True,
+                "ocr_mode": "paddleocr",
+                "convert_to_google_format": True
+            })
+        )
+        db.add(job)
+        await db.commit()
+        await db.refresh(job)
+        job_id = job.id
+
+    async def fake_translate_batch(*args, **kwargs):
+        batch = kwargs.get("batch") or []
+        for seg in batch:
+            seg.translated_text = f"{seg.source_text} (VI)"
+            seg.status = "translated"
+
+    with patch.object(GoogleWorkspaceClient, "get_valid_access_token", new_callable=AsyncMock, return_value="mock_token"), \
+         patch.object(google_job_manager, "_translate_batch", side_effect=fake_translate_batch):
+
+        await google_job_manager._run_job_pipeline(job_id)
+
+    async with async_session_maker() as db:
+        updated_job = (await db.execute(select(DocumentJob).where(DocumentJob.id == job_id))).scalar_one()
+        assert updated_job.status in ("completed", "partially_completed")
+        assert "drive.google.com" in (updated_job.output_path or "")
+        assert updated_job.total_segments > 0
+
+
+@pytest.mark.asyncio
+async def test_google_translation_sheet_with_images_hybrid_inplace_update():
+    """Verifies that in 'update' target_mode with images enabled, Google Sheets calls update_file_content to update target_file_id in-place."""
+    async with async_session_maker() as db:
+        acc = IntegrationAccount(
+            provider="google",
+            account_name="Test Workspace Sheets Inplace",
+            email="test_sheet_inplace@google.com",
+            encrypted_access_token="mock_token",
+            is_active=True,
+            is_mock=True
+        )
+        db.add(acc)
+
+        doc_file = DocumentFile(
+            filename="Bảng tính cập nhật ảnh",
+            file_type="gsheet",
+            file_size=1024,
+            original_path="gsheet-src-orig-101",
+            detected_language="ja"
+        )
+        db.add(doc_file)
+        await db.commit()
+        await db.refresh(doc_file)
+
+        target_fid = "existing-translated-sheet-copy-888"
+        job = DocumentJob(
+            document_id=doc_file.id,
+            status="queued",
+            source_language="ja",
+            target_language="vi",
+            provider="gemini",
+            model="gemini-3.7-flash",
+            style="Technical",
+            options_json=json.dumps({
+                "file_id": "gsheet-src-orig-101",
+                "file_type": "gsheet",
+                "title": "Bảng tính cập nhật ảnh",
+                "translate_images": True,
+                "ocr_mode": "paddleocr",
+                "target_mode": "update",
+                "target_file_id": target_fid
+            })
+        )
+        db.add(job)
+        await db.commit()
+        await db.refresh(job)
+        job_id = job.id
+
+    async def fake_translate_batch(*args, **kwargs):
+        batch = kwargs.get("batch") or []
+        for seg in batch:
+            seg.translated_text = f"{seg.source_text} (VI)"
+            seg.status = "translated"
+
+    with patch.object(GoogleWorkspaceClient, "get_valid_access_token", new_callable=AsyncMock, return_value="mock_token"), \
+         patch.object(google_job_manager, "_translate_batch", side_effect=fake_translate_batch), \
+         patch.object(GoogleDriveService, "update_file_content", new_callable=AsyncMock, return_value={"id": target_fid, "status": "updated"}) as mock_update_content, \
+         patch.object(GoogleDriveService, "upload_file", new_callable=AsyncMock) as mock_upload_file:
+
+        await google_job_manager._run_job_pipeline(job_id)
+
+        # Must call update_file_content on the existing copy!
+        assert mock_update_content.call_count == 1
+        call_kwargs = mock_update_content.call_args[1]
+        assert call_kwargs["file_id"] == target_fid
+        # Must NOT create a brand new file
+        assert mock_upload_file.call_count == 0
+
+    async with async_session_maker() as db:
+        updated_job = (await db.execute(select(DocumentJob).where(DocumentJob.id == job_id))).scalar_one()
+        assert updated_job.status in ("completed", "partially_completed")
+        assert target_fid in (updated_job.output_path or "")
+
+
+
+
 
 

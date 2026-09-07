@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Folder,
   Search,
@@ -8,20 +8,78 @@ import {
   Upload,
   Edit2,
   Trash2,
+  Download,
   ExternalLink,
   RefreshCw,
   Home,
   Check,
+  CheckSquare,
   X,
   Link2,
   Users,
-  Clock
+  Clock,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
+  ListFilter
 } from 'lucide-react';
 import { GoogleFileItem } from '../../types';
 import { apiClient } from '../../api/client';
 import { useToast } from '../../context/ToastContext';
 import { useConfirm } from '../../context/ConfirmDialogContext';
 import { FileFormatIcon, resolveFileType, FileTypeCategory } from '../common/FileFormatIcon';
+
+export type SortField = 'name' | 'modifiedTime' | 'size';
+export type SortDirection = 'asc' | 'desc';
+
+const formatFileSize = (bytesStr?: string, isFolder?: boolean): string => {
+  if (isFolder) return '—';
+  if (!bytesStr) return '—';
+  const bytes = Number(bytesStr);
+  if (isNaN(bytes) || bytes <= 0) return '—';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+};
+
+const formatModifiedDate = (dateStr?: string): string => {
+  if (!dateStr) return '—';
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr.slice(0, 10);
+    const now = new Date();
+    const isToday = d.toDateString() === now.toDateString();
+    if (isToday) {
+      return `Hôm nay, ${d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}`;
+    }
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (d.toDateString() === yesterday.toDateString()) {
+      return `Hôm qua, ${d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}`;
+    }
+    const currentYear = now.getFullYear();
+    if (d.getFullYear() === currentYear) {
+      return d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
+    }
+    return d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  } catch {
+    return dateStr.slice(0, 10);
+  }
+};
+
+const getOwnerDisplayName = (file: GoogleFileItem): string => {
+  if (file.sharingUser?.displayName) {
+    return file.sharingUser.displayName;
+  }
+  if (file.sharingUser?.emailAddress) {
+    return file.sharingUser.emailAddress.split('@')[0];
+  }
+  if (file.owners && file.owners.length > 0 && file.owners[0].displayName) {
+    return file.owners[0].displayName;
+  }
+  return 'tôi';
+};
 
 interface GoogleDriveExplorerProps {
   files: GoogleFileItem[];
@@ -73,7 +131,7 @@ export const GoogleDriveExplorer: React.FC<GoogleDriveExplorerProps> = ({
   const [isUploading, setIsUploading] = useState(false);
 
   // Format Filter state
-  type FormatFilterType = 'all' | 'folder' | 'doc' | 'sheet' | 'slide' | 'pdf';
+  type FormatFilterType = 'all' | 'folder' | 'doc' | 'sheet' | 'slide' | 'pdf' | 'image';
   const [selectedFormatFilter, setSelectedFormatFilter] = useState<FormatFilterType>('all');
 
   const getFileCategory = (f: GoogleFileItem): FileTypeCategory => {
@@ -87,6 +145,7 @@ export const GoogleDriveExplorer: React.FC<GoogleDriveExplorerProps> = ({
     sheet: files.filter(f => getFileCategory(f) === 'sheet').length,
     slide: files.filter(f => getFileCategory(f) === 'slide').length,
     pdf: files.filter(f => getFileCategory(f) === 'pdf').length,
+    image: files.filter(f => getFileCategory(f) === 'image').length,
   };
 
   const filteredFiles = files.filter(file => {
@@ -196,6 +255,195 @@ export const GoogleDriveExplorer: React.FC<GoogleDriveExplorerProps> = ({
     }
   };
 
+  // Batch selection state
+  const [isSelectMode, setIsSelectMode] = useState(false);
+  const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
+  const [isBatchDeleting, setIsBatchDeleting] = useState(false);
+
+  // Download states
+  const [downloadingFileId, setDownloadingFileId] = useState<string | null>(null);
+  const [isBatchDownloading, setIsBatchDownloading] = useState(false);
+
+  // Sorting state (Standard Google Drive Sort)
+  const [sortField, setSortField] = useState<SortField>('name');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [showSortDropdown, setShowSortDropdown] = useState(false);
+  const sortDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close sort dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (sortDropdownRef.current && !sortDropdownRef.current.contains(event.target as Node)) {
+        setShowSortDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleHeaderSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(prev => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection(field === 'modifiedTime' ? 'desc' : 'asc');
+    }
+  };
+
+  const handleSelectSort = (field: SortField, direction: SortDirection) => {
+    setSortField(field);
+    setSortDirection(direction);
+    setShowSortDropdown(false);
+  };
+
+  const sortedFiles = [...filteredFiles].sort((a, b) => {
+    const aIsFolder = a.type === 'folder';
+    const bIsFolder = b.type === 'folder';
+    if (aIsFolder && !bIsFolder) return -1;
+    if (!aIsFolder && bIsFolder) return 1;
+
+    let comp = 0;
+    if (sortField === 'name') {
+      comp = a.name.localeCompare(b.name, 'vi', { sensitivity: 'base', numeric: true });
+    } else if (sortField === 'modifiedTime') {
+      const aTime = a.modifiedTime ? new Date(a.modifiedTime).getTime() : 0;
+      const bTime = b.modifiedTime ? new Date(b.modifiedTime).getTime() : 0;
+      comp = aTime - bTime;
+    } else if (sortField === 'size') {
+      const aSize = Number(a.size || 0);
+      const bSize = Number(b.size || 0);
+      comp = aSize - bSize;
+    }
+
+    return sortDirection === 'asc' ? comp : -comp;
+  });
+
+  // Clear selection when navigating folders or switching views
+  useEffect(() => {
+    setIsSelectMode(false);
+    setSelectedFileIds(new Set());
+  }, [selectedFolder, viewMode]);
+
+  const toggleSelectMode = () => {
+    if (isSelectMode) {
+      setIsSelectMode(false);
+      setSelectedFileIds(new Set());
+    } else {
+      setIsSelectMode(true);
+    }
+  };
+
+  const allFilteredSelected = sortedFiles.length > 0 && sortedFiles.every(f => selectedFileIds.has(f.id));
+  const someFilteredSelected = sortedFiles.some(f => selectedFileIds.has(f.id));
+
+  const handleToggleSelectFile = (fileId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setSelectedFileIds(prev => {
+      const next = new Set(prev);
+      if (next.has(fileId)) {
+        next.delete(fileId);
+      } else {
+        next.add(fileId);
+      }
+      return next;
+    });
+  };
+
+  const handleToggleSelectAll = () => {
+    if (allFilteredSelected) {
+      setSelectedFileIds(prev => {
+        const next = new Set(prev);
+        sortedFiles.forEach(f => next.delete(f.id));
+        return next;
+      });
+    } else {
+      setSelectedFileIds(prev => {
+        const next = new Set(prev);
+        sortedFiles.forEach(f => next.add(f.id));
+        return next;
+      });
+    }
+  };
+
+  const handleClearSelection = () => {
+    setSelectedFileIds(new Set());
+  };
+
+  const handleBatchDelete = async () => {
+    if (selectedFileIds.size === 0) return;
+    const selectedItems = files.filter(f => selectedFileIds.has(f.id));
+    const folderCount = selectedItems.filter(f => f.type === 'folder').length;
+    const fileCount = selectedItems.length - folderCount;
+
+    let itemsDesc = '';
+    if (folderCount > 0 && fileCount > 0) {
+      itemsDesc = `${fileCount} tập tin và ${folderCount} thư mục`;
+    } else if (folderCount > 0) {
+      itemsDesc = `${folderCount} thư mục`;
+    } else {
+      itemsDesc = `${fileCount} tập tin`;
+    }
+
+    const ok = await confirm({
+      title: `Xóa vĩnh viễn ${selectedFileIds.size} mục trên Google Drive`,
+      message: `Bạn có chắc chắn muốn xóa vĩnh viễn ${itemsDesc} đã chọn khỏi Google Drive? Thao tác này sẽ gỡ bỏ các mục này khỏi tài khoản của bạn và không thể hoàn tác.`,
+      isDestructive: true,
+      confirmText: `Xóa vĩnh viễn (${selectedFileIds.size})`,
+      cancelText: 'Hủy bỏ'
+    });
+
+    if (!ok) return;
+
+    setIsBatchDeleting(true);
+    try {
+      const res = await apiClient.batchDeleteDriveFiles(Array.from(selectedFileIds));
+      if (res.failed_count > 0) {
+        toast.warning(`Đã xóa ${res.deleted_count}/${res.deleted_count + res.failed_count} mục. Một số mục không thể xóa.`);
+      } else {
+        toast.success(`Đã xóa thành công ${res.deleted_count} mục khỏi Google Drive`);
+      }
+      setSelectedFileIds(new Set());
+      onRefresh();
+    } catch (e: any) {
+      toast.error(e.response?.data?.detail || 'Không thể xóa các mục đã chọn');
+    } finally {
+      setIsBatchDeleting(false);
+    }
+  };
+
+  const handleDownloadSingle = async (file: GoogleFileItem) => {
+    if (file.type === 'folder') return;
+    setDownloadingFileId(file.id);
+    try {
+      const dlName = await apiClient.downloadDriveFile(file.id, file.name);
+      toast.success(`Đã tải xuống "${dlName}"`);
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Không thể tải xuống tệp tin');
+    } finally {
+      setDownloadingFileId(null);
+    }
+  };
+
+  const handleBatchDownload = async () => {
+    const selectedFiles = files.filter(f => selectedFileIds.has(f.id) && f.type !== 'folder');
+    if (selectedFiles.length === 0) {
+      toast.warning('Vui lòng chọn ít nhất 1 tệp tin để tải xuống (không thể tải trực tiếp thư mục).');
+      return;
+    }
+
+    setIsBatchDownloading(true);
+    try {
+      const zipName = await apiClient.downloadDriveFilesBatch(selectedFiles.map(f => f.id));
+      toast.success(`Đã tải xuống thành công ${selectedFiles.length} tệp tin (${zipName})`);
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || 'Không thể tải xuống các tệp tin đã chọn');
+    } finally {
+      setIsBatchDownloading(false);
+    }
+  };
+
+  const selectedFilesCount = files.filter(f => selectedFileIds.has(f.id) && f.type !== 'folder').length;
+
   const handleDeleteItem = async (file: GoogleFileItem) => {
     const isFolder = file.type === 'folder';
     const ok = await confirm({
@@ -209,6 +457,14 @@ export const GoogleDriveExplorer: React.FC<GoogleDriveExplorerProps> = ({
     try {
       await apiClient.deleteDriveFile(file.id);
       toast.success(`Đã xóa "${file.name}"`);
+      setSelectedFileIds(prev => {
+        if (prev.has(file.id)) {
+          const next = new Set(prev);
+          next.delete(file.id);
+          return next;
+        }
+        return prev;
+      });
       onRefresh();
     } catch (e: any) {
       toast.error(e.response?.data?.detail || 'Không thể xóa');
@@ -349,6 +605,63 @@ export const GoogleDriveExplorer: React.FC<GoogleDriveExplorerProps> = ({
             />
           </div>
 
+          {/* Select Mode / Batch Delete Buttons */}
+          {!isSelectMode ? (
+            <button
+              type="button"
+              onClick={toggleSelectMode}
+              className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-medium flex items-center gap-1.5 border border-slate-700 transition-colors"
+              title="Bật chế độ chọn nhiều file để thao tác"
+            >
+              <CheckSquare className="w-3.5 h-3.5 text-sky-400" />
+              <span className="hidden sm:inline">Chọn</span>
+            </button>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              {selectedFilesCount > 0 && (
+                <button
+                  type="button"
+                  onClick={handleBatchDownload}
+                  disabled={isBatchDownloading}
+                  className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-sky-900/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                  title="Tải tất cả tệp tin đã chọn dưới dạng file .ZIP"
+                >
+                  {isBatchDownloading ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Download className="w-3.5 h-3.5" />
+                  )}
+                  <span>Tải xuống ({selectedFilesCount})</span>
+                </button>
+              )}
+              {selectedFileIds.size > 0 && (
+                <button
+                  type="button"
+                  onClick={handleBatchDelete}
+                  disabled={isBatchDeleting}
+                  className="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-red-900/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                  title="Xóa vĩnh viễn các mục đã chọn khỏi Google Drive"
+                >
+                  {isBatchDeleting ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-3.5 h-3.5" />
+                  )}
+                  <span>Xóa tất ({selectedFileIds.size})</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={toggleSelectMode}
+                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-medium flex items-center gap-1.5 transition-colors"
+                title="Thoát chế độ chọn"
+              >
+                <X className="w-3.5 h-3.5 text-slate-400" />
+                <span className="hidden sm:inline">Hủy chọn</span>
+              </button>
+            </div>
+          )}
+
           <button
             onClick={() => setShowLinkModal(true)}
             className="px-3 py-1.5 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 text-xs font-medium flex items-center gap-1.5 border border-sky-500/30 transition-colors"
@@ -402,6 +715,7 @@ export const GoogleDriveExplorer: React.FC<GoogleDriveExplorerProps> = ({
             { key: 'sheet' as const, label: 'Bảng tính', icon: <FileFormatIcon type="sheet" size="xs" /> },
             { key: 'slide' as const, label: 'Trình chiếu', icon: <FileFormatIcon type="slide" size="xs" /> },
             { key: 'pdf' as const, label: 'PDF', icon: <FileFormatIcon type="pdf" size="xs" /> },
+            { key: 'image' as const, label: 'Hình ảnh', icon: <FileFormatIcon type="image" size="xs" /> },
           ]).map((tab) => {
             const count = formatCounts[tab.key];
             const isActive = selectedFormatFilter === tab.key;
@@ -428,20 +742,216 @@ export const GoogleDriveExplorer: React.FC<GoogleDriveExplorerProps> = ({
           })}
         </div>
 
-        {selectedFormatFilter !== 'all' && (
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] text-slate-400">
-              Đang lọc: {filteredFiles.length} / {files.length} mục
+        <div className="flex items-center gap-3">
+          {isSelectMode && filteredFiles.length > 0 && (
+            <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-slate-300 hover:text-white px-2.5 py-1 rounded-lg bg-slate-800/80 border border-slate-700 hover:bg-slate-800 transition-colors">
+              <input
+                type="checkbox"
+                checked={allFilteredSelected}
+                ref={(el) => {
+                  if (el) el.indeterminate = someFilteredSelected && !allFilteredSelected;
+                }}
+                onChange={handleToggleSelectAll}
+                className="w-3.5 h-3.5 rounded border-slate-600 bg-slate-900 text-sky-500 focus:ring-sky-500/20 focus:ring-offset-0 cursor-pointer accent-sky-500"
+              />
+              <span className="font-medium text-[11px]">
+                {allFilteredSelected ? 'Bỏ chọn tất cả' : 'Chọn tất cả'}
+                <span className="text-slate-400 ml-1">({filteredFiles.length})</span>
+              </span>
+            </label>
+          )}
+
+          {selectedFormatFilter !== 'all' && (
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-slate-400">
+                Đang lọc: {filteredFiles.length} / {files.length} mục
+              </span>
+              <button
+                type="button"
+                onClick={() => setSelectedFormatFilter('all')}
+                className="text-[10px] text-sky-400 hover:text-sky-300 font-medium px-2 py-0.5 rounded bg-sky-500/10 border border-sky-500/20 hover:bg-sky-500/20 transition-colors"
+              >
+                Xem tất cả
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Files List Table Header (Standard Google Drive Sort Bar) */}
+      <div className="px-5 py-2.5 bg-slate-900/90 border-b border-slate-800 text-[11px] font-medium text-slate-400 select-none flex items-center justify-between gap-4">
+        {/* Cột 1: Tên (kèm icon sắp xếp) */}
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          {isSelectMode && <div className="w-5 flex-shrink-0" />}
+          <button
+            type="button"
+            onClick={() => handleHeaderSort('name')}
+            className={`group inline-flex items-center gap-1.5 hover:text-white transition-colors cursor-pointer ${
+              sortField === 'name' ? 'text-sky-400 font-semibold' : ''
+            }`}
+            title="Sắp xếp theo tên"
+          >
+            <span>Tên</span>
+            <span className={`w-4 h-4 rounded-full flex items-center justify-center transition-all ${
+              sortField === 'name'
+                ? 'bg-sky-500/20 text-sky-400'
+                : 'text-slate-500 opacity-0 group-hover:opacity-100 hover:bg-slate-800'
+            }`}>
+              {sortField === 'name' && sortDirection === 'desc' ? (
+                <ArrowDown className="w-3 h-3" />
+              ) : (
+                <ArrowUp className="w-3 h-3" />
+              )}
             </span>
-            <button
-              type="button"
-              onClick={() => setSelectedFormatFilter('all')}
-              className="text-[10px] text-sky-400 hover:text-sky-300 font-medium px-2 py-0.5 rounded bg-sky-500/10 border border-sky-500/20 hover:bg-sky-500/20 transition-colors"
-            >
-              Xem tất cả
-            </button>
-          </div>
-        )}
+          </button>
+        </div>
+
+        {/* Cột 2: Chủ sở hữu */}
+        <div className="w-32 lg:w-40 flex-shrink-0 hidden md:flex items-center text-slate-400">
+          <span>Chủ sở hữu</span>
+        </div>
+
+        {/* Cột 3: Ngày sửa đổi */}
+        <div className="w-32 lg:w-36 flex-shrink-0 hidden sm:flex items-center">
+          <button
+            type="button"
+            onClick={() => handleHeaderSort('modifiedTime')}
+            className={`group inline-flex items-center gap-1.5 hover:text-white transition-colors cursor-pointer ${
+              sortField === 'modifiedTime' ? 'text-sky-400 font-semibold' : ''
+            }`}
+            title="Sắp xếp theo ngày sửa đổi"
+          >
+            <span>Ngày sửa đổi</span>
+            <span className={`w-4 h-4 rounded-full flex items-center justify-center transition-all ${
+              sortField === 'modifiedTime'
+                ? 'bg-sky-500/20 text-sky-400'
+                : 'text-slate-500 opacity-0 group-hover:opacity-100 hover:bg-slate-800'
+            }`}>
+              {sortField === 'modifiedTime' && sortDirection === 'desc' ? (
+                <ArrowDown className="w-3 h-3" />
+              ) : (
+                <ArrowUp className="w-3 h-3" />
+              )}
+            </span>
+          </button>
+        </div>
+
+        {/* Cột 4: Kích cỡ tệp */}
+        <div className="w-24 lg:w-28 flex-shrink-0 hidden sm:flex items-center">
+          <button
+            type="button"
+            onClick={() => handleHeaderSort('size')}
+            className={`group inline-flex items-center gap-1.5 hover:text-white transition-colors cursor-pointer ${
+              sortField === 'size' ? 'text-sky-400 font-semibold' : ''
+            }`}
+            title="Sắp xếp theo kích cỡ"
+          >
+            <span>Kích cỡ tệp</span>
+            <span className={`w-4 h-4 rounded-full flex items-center justify-center transition-all ${
+              sortField === 'size'
+                ? 'bg-sky-500/20 text-sky-400'
+                : 'text-slate-500 opacity-0 group-hover:opacity-100 hover:bg-slate-800'
+            }`}>
+              {sortField === 'size' && sortDirection === 'desc' ? (
+                <ArrowDown className="w-3 h-3" />
+              ) : (
+                <ArrowUp className="w-3 h-3" />
+              )}
+            </span>
+          </button>
+        </div>
+
+        {/* Cột 5: Menu Sắp xếp */}
+        <div className="w-52 lg:w-56 flex-shrink-0 flex items-center justify-end relative" ref={sortDropdownRef}>
+          <button
+            type="button"
+            onClick={() => setShowSortDropdown(prev => !prev)}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors border ${
+              showSortDropdown
+                ? 'bg-slate-800 text-white border-slate-700'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/80 border-transparent hover:border-slate-700'
+            }`}
+            title="Tùy chọn sắp xếp nhanh"
+          >
+            <ListFilter className="w-3.5 h-3.5" />
+            <span>Sắp xếp</span>
+          </button>
+
+          {/* Sort Dropdown Menu */}
+          {showSortDropdown && (
+            <div className="absolute right-0 top-full mt-1.5 w-52 bg-slate-900 border border-slate-700/80 rounded-xl shadow-2xl py-1.5 z-50 text-xs text-slate-300 animate-in fade-in zoom-in-95 duration-150">
+              <div className="px-3 py-1 text-[10px] uppercase font-semibold text-slate-500 tracking-wider">
+                Sắp xếp theo
+              </div>
+              <button
+                type="button"
+                onClick={() => handleSelectSort('name', 'asc')}
+                className={`w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-slate-800 transition-colors ${
+                  sortField === 'name' && sortDirection === 'asc' ? 'text-sky-400 font-medium bg-sky-500/10' : ''
+                }`}
+              >
+                <span>Tên (A đến Z)</span>
+                {sortField === 'name' && sortDirection === 'asc' && <Check className="w-3.5 h-3.5 text-sky-400" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSelectSort('name', 'desc')}
+                className={`w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-slate-800 transition-colors ${
+                  sortField === 'name' && sortDirection === 'desc' ? 'text-sky-400 font-medium bg-sky-500/10' : ''
+                }`}
+              >
+                <span>Tên (Z đến A)</span>
+                {sortField === 'name' && sortDirection === 'desc' && <Check className="w-3.5 h-3.5 text-sky-400" />}
+              </button>
+
+              <div className="my-1 border-t border-slate-800" />
+
+              <button
+                type="button"
+                onClick={() => handleSelectSort('modifiedTime', 'desc')}
+                className={`w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-slate-800 transition-colors ${
+                  sortField === 'modifiedTime' && sortDirection === 'desc' ? 'text-sky-400 font-medium bg-sky-500/10' : ''
+                }`}
+              >
+                <span>Sửa đổi gần đây nhất</span>
+                {sortField === 'modifiedTime' && sortDirection === 'desc' && <Check className="w-3.5 h-3.5 text-sky-400" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSelectSort('modifiedTime', 'asc')}
+                className={`w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-slate-800 transition-colors ${
+                  sortField === 'modifiedTime' && sortDirection === 'asc' ? 'text-sky-400 font-medium bg-sky-500/10' : ''
+                }`}
+              >
+                <span>Sửa đổi cũ nhất</span>
+                {sortField === 'modifiedTime' && sortDirection === 'asc' && <Check className="w-3.5 h-3.5 text-sky-400" />}
+              </button>
+
+              <div className="my-1 border-t border-slate-800" />
+
+              <button
+                type="button"
+                onClick={() => handleSelectSort('size', 'desc')}
+                className={`w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-slate-800 transition-colors ${
+                  sortField === 'size' && sortDirection === 'desc' ? 'text-sky-400 font-medium bg-sky-500/10' : ''
+                }`}
+              >
+                <span>Kích cỡ (Lớn nhất trước)</span>
+                {sortField === 'size' && sortDirection === 'desc' && <Check className="w-3.5 h-3.5 text-sky-400" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSelectSort('size', 'asc')}
+                className={`w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-slate-800 transition-colors ${
+                  sortField === 'size' && sortDirection === 'asc' ? 'text-sky-400 font-medium bg-sky-500/10' : ''
+                }`}
+              >
+                <span>Kích cỡ (Nhỏ nhất trước)</span>
+                {sortField === 'size' && sortDirection === 'asc' && <Check className="w-3.5 h-3.5 text-sky-400" />}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Files List Table */}
@@ -470,7 +980,7 @@ export const GoogleDriveExplorer: React.FC<GoogleDriveExplorerProps> = ({
                 : 'Bấm "+ Thư mục mới" hoặc "Tải file lên" để bắt đầu thao tác.'}
             </p>
           </div>
-        ) : filteredFiles.length === 0 ? (
+        ) : sortedFiles.length === 0 ? (
           <div className="p-10 text-center space-y-2.5">
             <Search className="w-8 h-8 text-slate-600 mx-auto" />
             <p className="text-slate-300 text-xs font-medium">
@@ -491,130 +1001,231 @@ export const GoogleDriveExplorer: React.FC<GoogleDriveExplorerProps> = ({
             </button>
           </div>
         ) : (
-          filteredFiles.map((file) => (
-            <div
-              key={file.id}
-              className="px-5 py-3 hover:bg-slate-850/50 transition-colors flex items-center justify-between gap-4 group"
-            >
-              {/* Left Item Details */}
-              <div className="flex items-center gap-3.5 min-w-0 flex-1">
-                <div
-                  className={`w-10 h-10 rounded-xl bg-slate-800/90 border border-slate-700/60 flex items-center justify-center flex-shrink-0 shadow-inner ${
-                    file.type === 'folder' ? 'cursor-pointer hover:border-sky-500/50 hover:bg-slate-800 transition-colors' : ''
-                  }`}
-                  onClick={() => {
-                    if (file.type === 'folder') {
-                      onOpenFolder(file.id, file.name);
-                    }
-                  }}
-                >
-                  <FileFormatIcon type={file.type} name={file.name} mimeType={file.mimeType} size="md" />
-                </div>
-
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h4
-                      onClick={() => {
-                        if (file.type === 'folder') {
-                          onOpenFolder(file.id, file.name);
-                        }
-                      }}
-                      className={`text-sm font-semibold truncate ${
-                        file.type === 'folder'
-                          ? 'text-sky-300 hover:underline cursor-pointer'
-                          : 'text-white'
-                      }`}
-                      title={file.name}
+          sortedFiles.map((file) => {
+            const isSelected = selectedFileIds.has(file.id);
+            const isFolder = file.type === 'folder';
+            return (
+              <div
+                key={file.id}
+                className={`px-5 py-2.5 transition-colors flex items-center justify-between gap-4 group ${
+                  isSelectMode && isSelected
+                    ? 'bg-sky-950/35 border-l-2 border-l-sky-500 hover:bg-sky-950/45'
+                    : 'hover:bg-slate-850/50'
+                }`}
+              >
+                {/* Column 1: Checkbox + Icon + Tên */}
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  {/* Selection Checkbox (Only visible in Select Mode) */}
+                  {isSelectMode && (
+                    <div
+                      className="flex items-center justify-center p-1 rounded hover:bg-slate-700/50 cursor-pointer flex-shrink-0"
+                      onClick={(e) => handleToggleSelectFile(file.id, e)}
+                      title={isSelected ? 'Bỏ chọn mục này' : 'Chọn mục này'}
                     >
-                      {file.name}
-                    </h4>
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => {}}
+                        className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-sky-500 focus:ring-sky-500/20 cursor-pointer accent-sky-500 pointer-events-none"
+                      />
+                    </div>
+                  )}
+
+                  <div
+                    className={`w-9 h-9 rounded-xl bg-slate-800/90 border border-slate-700/60 flex items-center justify-center flex-shrink-0 shadow-inner ${
+                      isFolder ? 'cursor-pointer hover:border-sky-500/50 hover:bg-slate-800 transition-colors' : ''
+                    }`}
+                    onClick={() => {
+                      if (isFolder) {
+                        onOpenFolder(file.id, file.name);
+                      }
+                    }}
+                  >
+                    <FileFormatIcon type={file.type} name={file.name} mimeType={file.mimeType} size="md" />
                   </div>
-                  <div className="flex items-center gap-2 flex-wrap text-xs text-slate-400 mt-0.5">
-                    <span className="uppercase text-[10px] font-mono px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 border border-slate-700/60">
-                      {file.type}
-                    </span>
-                    {file.sharingUser && (
-                      <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 font-medium" title={file.sharingUser.emailAddress}>
-                        <Users className="w-3 h-3 text-indigo-400" />
-                        <span>Chia sẻ bởi: {file.sharingUser.displayName || file.sharingUser.emailAddress}</span>
+
+                  <div className="min-w-0 pr-2">
+                    <div className="flex items-center gap-2">
+                      <h4
+                        onClick={() => {
+                          if (isFolder) {
+                            onOpenFolder(file.id, file.name);
+                          }
+                        }}
+                        className={`text-sm font-semibold truncate ${
+                          isFolder
+                            ? 'text-sky-300 hover:underline cursor-pointer'
+                            : 'text-white'
+                        }`}
+                        title={file.name}
+                      >
+                        {file.name}
+                      </h4>
+                    </div>
+                    {/* Mobile-only summary line for small screens */}
+                    <div className="flex sm:hidden items-center gap-1.5 text-[11px] text-slate-400 mt-0.5 flex-wrap">
+                      <span className="uppercase text-[9px] font-mono px-1 py-0.2 rounded bg-slate-800 text-slate-300 border border-slate-700/60">
+                        {file.type}
                       </span>
-                    )}
-                    {file.sharedWithMeTime && (
-                      <span className="text-indigo-400/90 text-[11px]">
-                        · Chia sẻ: {file.sharedWithMeTime.slice(0, 10)}
-                      </span>
-                    )}
-                    {file.sharedDrive && (
-                      <span className="text-[11px] text-amber-400">· Shared Drive</span>
-                    )}
-                    {file.size && (
-                      <span className="text-slate-500 text-[11px]">
-                        · {(Number(file.size) / 1024).toFixed(1)} KB
-                      </span>
-                    )}
-                    <span className="text-slate-500 text-[11px]">
-                      · Sửa: {file.modifiedTime?.slice(0, 10) || 'Gần đây'}
-                    </span>
+                      <span>·</span>
+                      <span className="truncate max-w-[120px]">{getOwnerDisplayName(file)}</span>
+                      <span>·</span>
+                      <span>{formatModifiedDate(file.modifiedTime)}</span>
+                      <span>·</span>
+                      <span>{formatFileSize(file.size, isFolder)}</span>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Right Action Buttons */}
-              <div className="flex items-center gap-1.5 flex-shrink-0">
-                {/* External Link */}
-                <a
-                  href={getDriveWebUrl(file.id)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-                  title="Mở trực tiếp trên Google Drive"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                </a>
+                {/* Column 2: Chủ sở hữu */}
+                <div className="w-32 lg:w-40 flex-shrink-0 hidden md:flex items-center text-xs text-slate-400 truncate">
+                  <span className="truncate" title={getOwnerDisplayName(file)}>
+                    {getOwnerDisplayName(file)}
+                  </span>
+                </div>
 
-                {/* Rename Button */}
-                <button
-                  onClick={() => {
-                    setRenameTarget(file);
-                    setRenameNewName(file.name);
-                  }}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-                  title="Đổi tên"
-                >
-                  <Edit2 className="w-4 h-4" />
-                </button>
+                {/* Column 3: Ngày sửa đổi */}
+                <div className="w-32 lg:w-36 flex-shrink-0 hidden sm:flex items-center text-xs text-slate-400">
+                  <span title={file.modifiedTime || undefined}>
+                    {formatModifiedDate(file.modifiedTime)}
+                  </span>
+                </div>
 
-                {/* Delete Button */}
-                <button
-                  onClick={() => handleDeleteItem(file)}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                  title="Xóa"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                {/* Column 4: Kích cỡ tệp */}
+                <div className="w-24 lg:w-28 flex-shrink-0 hidden sm:flex items-center text-xs text-slate-400 font-mono">
+                  <span>{formatFileSize(file.size, isFolder)}</span>
+                </div>
 
-                {/* Open Folder / Translate CTA */}
-                {file.type === 'folder' ? (
-                  <button
-                    onClick={() => onOpenFolder(file.id, file.name)}
-                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium transition-colors ml-1"
+                {/* Column 5: Action Buttons */}
+                <div className="w-52 lg:w-56 flex items-center justify-end gap-1.5 flex-shrink-0">
+                  {/* Download Button (Only for files) */}
+                  {!isFolder && (
+                    <button
+                      onClick={() => handleDownloadSingle(file)}
+                      disabled={downloadingFileId === file.id}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                      title="Tải file về máy"
+                    >
+                      {downloadingFileId === file.id ? (
+                        <RefreshCw className="w-4 h-4 animate-spin text-sky-400" />
+                      ) : (
+                        <Download className="w-4 h-4" />
+                      )}
+                    </button>
+                  )}
+
+                  {/* External Link */}
+                  <a
+                    href={getDriveWebUrl(file.id)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                    title="Mở trực tiếp trên Google Drive"
                   >
-                    Mở thư mục
-                  </button>
-                ) : (
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+
+                  {/* Rename Button */}
                   <button
-                    onClick={() => onTranslateFile(file)}
-                    className="px-3.5 py-1.5 rounded-lg bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/30 text-xs font-medium flex items-center gap-1.5 transition-colors ml-1"
+                    onClick={() => {
+                      setRenameTarget(file);
+                      setRenameNewName(file.name);
+                    }}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                    title="Đổi tên"
                   >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>Cấu hình & Dịch</span>
+                    <Edit2 className="w-4 h-4" />
                   </button>
-                )}
+
+                  {/* Delete Button */}
+                  <button
+                    onClick={() => handleDeleteItem(file)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                    title="Xóa"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+
+                  {/* Open Folder / Translate CTA */}
+                  {isFolder ? (
+                    <button
+                      onClick={() => onOpenFolder(file.id, file.name)}
+                      className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium transition-colors ml-1"
+                    >
+                      Mở thư mục
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => onTranslateFile(file)}
+                      className="px-3.5 py-1.5 rounded-lg bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/30 text-xs font-medium flex items-center gap-1.5 transition-colors ml-1"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Cấu hình & Dịch</span>
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
+
+      {/* Floating Action Bar for Batch Deletion */}
+      {isSelectMode && selectedFileIds.size > 0 && (
+        <div className="sticky bottom-4 z-40 px-4 self-center w-full max-w-xl animate-in fade-in slide-in-from-bottom-3 duration-200 mt-auto my-3">
+          <div className="bg-slate-900/95 backdrop-blur-md border border-sky-500/40 rounded-xl px-4 py-2.5 shadow-2xl shadow-black/80 flex items-center justify-between gap-3 text-sm">
+            <div className="flex items-center gap-2.5">
+              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-sky-500 text-slate-950 font-bold text-xs">
+                {selectedFileIds.size}
+              </span>
+              <span className="text-white font-medium text-xs sm:text-sm">
+                Đã chọn {selectedFileIds.size} mục
+              </span>
+              <button
+                type="button"
+                onClick={handleClearSelection}
+                className="text-xs text-slate-400 hover:text-white underline decoration-slate-600 hover:decoration-white transition-colors ml-1"
+              >
+                Bỏ chọn
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {selectedFilesCount > 0 && (
+                <button
+                  type="button"
+                  onClick={handleBatchDownload}
+                  disabled={isBatchDownloading}
+                  className="px-3.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-sky-900/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                  title="Tải tất cả tệp tin đã chọn dưới dạng file .ZIP"
+                >
+                  {isBatchDownloading ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Download className="w-3.5 h-3.5" />
+                  )}
+                  <span>Tải xuống ({selectedFilesCount})</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={handleBatchDelete}
+                disabled={isBatchDeleting}
+                className="px-3.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-red-900/30 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                title="Xóa vĩnh viễn các mục đã chọn khỏi Google Drive"
+              >
+                {isBatchDeleting ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3.5 h-3.5" />
+                )}
+                <span>Xóa {selectedFileIds.size} mục đã chọn</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL: New Folder */}
       {showNewFolderModal && (

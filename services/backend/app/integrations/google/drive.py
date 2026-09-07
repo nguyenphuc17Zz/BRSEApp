@@ -1,5 +1,9 @@
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 from pathlib import Path
+import asyncio
+import io
+import zipfile
+from datetime import datetime
 import json
 import httpx
 from app.core.logging import logger
@@ -130,7 +134,7 @@ class GoogleDriveService:
         headers = {"Authorization": f"Bearer {access_token}"}
         async with httpx.AsyncClient(timeout=15.0) as http:
             resp = await http.get(
-                f"{DRIVE_API_BASE}/files/{file_id}?fields=id,name,mimeType,size,trashed&supportsAllDrives=true",
+                f"{DRIVE_API_BASE}/files/{file_id}?fields=id,name,mimeType,size,trashed,parents&supportsAllDrives=true",
                 headers=headers
             )
             if resp.status_code == 200:
@@ -218,49 +222,13 @@ class GoogleDriveService:
         if is_mock:
             return True
 
-        headers = {"Authorization": f"Bearer {access_token}"}
-        f_type = (file_type or "").lower()
-
-        if "sheet" in f_type:
-            export_mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            sync_filename = "sync.xlsx"
-        elif "slide" in f_type or "presentation" in f_type:
-            export_mime = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-            sync_filename = "sync.pptx"
-        else:
-            # Google Docs native multi-tab preservation:
-            # Microsoft Word (.docx) has no concept of tabs. When Google Docs exports a multi-tab document to .docx,
-            # Google Drive's export engine flattens all tabs into one and injects tab titles into the body text.
-            # Re-uploading that DOCX destroys the multi-tab layout and permanently injects tab names into the document body.
-            # Therefore, Google Docs in-place updates must skip DOCX conversion and rely on native Docs REST API.
-            logger.info(f"Preserving native Google Doc multi-tab structure for {source_file_id} -> {target_file_id}. Skipping DOCX export.")
-            return True
-
-        async with httpx.AsyncClient(timeout=60.0) as http:
-            exp_res = await http.get(
-                f"{DRIVE_API_BASE}/files/{source_file_id}/export?mimeType={export_mime}&supportsAllDrives=true",
-                headers=headers
-            )
-            if exp_res.status_code != 200:
-                logger.warning(f"Could not export source file {source_file_id} for in-place sync: HTTP {exp_res.status_code}")
-                return False
-
-            file_bytes = exp_res.content
-            files = {
-                "data": ("metadata", json.dumps({}), "application/json; charset=UTF-8"),
-                "file": (sync_filename, file_bytes, export_mime)
-            }
-            up_res = await http.patch(
-                f"https://www.googleapis.com/upload/drive/v3/files/{target_file_id}?uploadType=multipart&supportsAllDrives=true",
-                headers={"Authorization": f"Bearer {access_token}"},
-                files=files
-            )
-            if up_res.status_code == 200:
-                logger.info(f"Successfully synced fresh layout and content from {source_file_id} to existing file {target_file_id}.")
-                return True
-            else:
-                logger.warning(f"Drive API failed to patch target file {target_file_id}: HTTP {up_res.status_code} - {up_res.text[:150]}")
-                return False
+        # Google Workspace native structure preservation (Docs, Sheets, Slides):
+        # Binary export to .docx, .xlsx, or .pptx destroys revisions, comments, conditional formatting,
+        # animations, themes, and complex formulas.
+        # In-place updates for Docs, Sheets, and Slides rely directly on their native REST APIs
+        # (AST Block Myers diff, 2D Matrix diff, and Slide AST Scoped diff).
+        logger.info(f"Preserving native structure for {file_type} ({source_file_id} -> {target_file_id}). Skipping binary export.")
+        return True
 
     @classmethod
     async def create_folder(
@@ -414,6 +382,34 @@ class GoogleDriveService:
             return resp.json()
 
     @classmethod
+    async def update_file_content(
+        cls,
+        access_token: str,
+        file_id: str,
+        content_bytes: bytes,
+        mime_type: str = "application/octet-stream",
+        is_mock: bool = False
+    ) -> Dict[str, Any]:
+        """Updates the media content of an existing file on Google Drive in-place using PATCH upload."""
+        if is_mock:
+            return {"id": file_id, "status": "updated"}
+
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": mime_type
+        }
+        async with httpx.AsyncClient(timeout=60.0) as http:
+            resp = await http.patch(
+                f"https://www.googleapis.com/upload/drive/v3/files/{file_id}?uploadType=media&supportsAllDrives=true",
+                headers=headers,
+                content=content_bytes
+            )
+            if resp.status_code != 200:
+                logger.error(f"Failed to update file content on Drive for {file_id}: {resp.text}")
+                raise ValueError(f"Drive update file content failed: {resp.text}")
+            return resp.json()
+
+    @classmethod
     async def rename_file(
         cls,
         access_token: str,
@@ -456,3 +452,179 @@ class GoogleDriveService:
                 logger.error(f"Failed to delete Drive file: {resp.text}")
                 raise ValueError(f"Drive delete failed: {resp.text}")
             return {"status": "deleted", "id": file_id}
+
+    @classmethod
+    async def delete_files_batch(
+        cls,
+        access_token: str,
+        file_ids: List[str],
+        is_mock: bool = False
+    ) -> Dict[str, Any]:
+        """Deletes multiple files or folders from Google Drive concurrently with rate-limiting."""
+        if is_mock:
+            return {"status": "success", "deleted_count": len(file_ids), "failed_count": 0, "failed_ids": []}
+
+        if not file_ids:
+            return {"status": "success", "deleted_count": 0, "failed_count": 0, "failed_ids": []}
+
+        sem = asyncio.Semaphore(5)
+        deleted_ids: List[str] = []
+        failed_ids: List[str] = []
+
+        async def _delete_single(fid: str):
+            async with sem:
+                for attempt in range(3):
+                    try:
+                        await cls.delete_file(access_token, fid, is_mock=is_mock)
+                        deleted_ids.append(fid)
+                        return
+                    except Exception as e:
+                        if attempt == 2:
+                            logger.warning(f"Could not delete Drive file {fid}: {e}")
+                            failed_ids.append(fid)
+                        else:
+                            await asyncio.sleep(0.5 * (attempt + 1))
+
+        await asyncio.gather(*[_delete_single(fid) for fid in file_ids])
+
+        return {
+            "status": "success" if not failed_ids else "partial",
+            "deleted_count": len(deleted_ids),
+            "failed_count": len(failed_ids),
+            "failed_ids": failed_ids
+        }
+
+    @classmethod
+    async def export_or_download_file_bytes(
+        cls,
+        access_token: str,
+        file_id: str,
+        is_mock: bool = False
+    ) -> Tuple[bytes, str, str]:
+        """
+        Exports Google Workspace files (Doc -> docx, Sheet -> xlsx, Slide -> pptx)
+        or downloads binary files (PDF, images, etc.) to raw bytes.
+        Returns: (content_bytes, safe_filename, mime_type)
+        """
+        if is_mock:
+            return b"Mock downloaded file content", f"mock_file_{file_id}.txt", "text/plain"
+
+        headers = {"Authorization": f"Bearer {access_token}"}
+
+        async with httpx.AsyncClient(timeout=60.0) as http:
+            # 1. Fetch file metadata
+            meta_res = await http.get(
+                f"{DRIVE_API_BASE}/files/{file_id}?fields=id,name,mimeType&supportsAllDrives=true",
+                headers=headers
+            )
+            if meta_res.status_code != 200:
+                logger.error(f"Failed to fetch metadata for file {file_id}: {meta_res.text}")
+                raise ValueError(f"Drive file metadata fetch failed: {meta_res.text}")
+
+            meta = meta_res.json()
+            raw_name = meta.get("name", f"file_{file_id}")
+            actual_mime = meta.get("mimeType", "")
+
+            # 2. Native Google Docs / Sheets / Slides export
+            is_native = actual_mime.startswith("application/vnd.google-apps.")
+            resp = None
+            dl_filename = raw_name
+            dl_mime = actual_mime or "application/octet-stream"
+
+            if is_native:
+                if "spreadsheet" in actual_mime:
+                    export_mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    if not dl_filename.lower().endswith(".xlsx"):
+                        dl_filename += ".xlsx"
+                elif "presentation" in actual_mime:
+                    export_mime = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                    if not dl_filename.lower().endswith(".pptx"):
+                        dl_filename += ".pptx"
+                else:
+                    export_mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    if not dl_filename.lower().endswith(".docx"):
+                        dl_filename += ".docx"
+
+                dl_mime = export_mime
+                resp = await http.get(
+                    f"{DRIVE_API_BASE}/files/{file_id}/export?mimeType={export_mime}&supportsAllDrives=true",
+                    headers=headers
+                )
+                if resp.status_code != 200:
+                    logger.warning(f"Export returned {resp.status_code}. Falling back to alt=media...")
+                    resp = None
+
+            # 3. Direct binary download via alt=media
+            if resp is None:
+                resp = await http.get(
+                    f"{DRIVE_API_BASE}/files/{file_id}?alt=media&supportsAllDrives=true",
+                    headers=headers
+                )
+
+            if resp.status_code != 200:
+                logger.error(f"Failed to download/export file {file_id}: {resp.text}")
+                raise ValueError(f"Failed to download/export file from Google Drive (HTTP {resp.status_code})")
+
+            return resp.content, dl_filename, dl_mime
+
+    @classmethod
+    async def download_files_as_zip(
+        cls,
+        access_token: str,
+        file_ids: List[str],
+        is_mock: bool = False
+    ) -> Tuple[bytes, str]:
+        """
+        Downloads multiple files concurrently and archives them into an in-memory ZIP file.
+        Returns: (zip_bytes, zip_filename)
+        """
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        zip_filename = f"drive_download_{timestamp}.zip"
+
+        if is_mock:
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                for idx, fid in enumerate(file_ids, 1):
+                    zf.writestr(f"mock_file_{idx}.txt", f"Mock content for file {fid}")
+            return buf.getvalue(), zip_filename
+
+        if not file_ids:
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr("empty.txt", "No files selected.")
+            return buf.getvalue(), zip_filename
+
+        sem = asyncio.Semaphore(5)
+        results: List[Tuple[bytes, str, str]] = []
+
+        async def _fetch_file(fid: str):
+            async with sem:
+                for attempt in range(3):
+                    try:
+                        content, name, mime = await cls.export_or_download_file_bytes(access_token, fid, is_mock=is_mock)
+                        results.append((content, name, mime))
+                        return
+                    except Exception as e:
+                        if attempt == 2:
+                            logger.warning(f"Could not download file {fid} for zip packaging: {e}")
+                        else:
+                            await asyncio.sleep(0.5 * (attempt + 1))
+
+        await asyncio.gather(*[_fetch_file(fid) for fid in file_ids])
+
+        buf = io.BytesIO()
+        used_names: set = set()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for content, name, _ in results:
+                final_name = name
+                counter = 1
+                while final_name in used_names:
+                    p = Path(name)
+                    stem, suffix = p.stem, p.suffix
+                    final_name = f"{stem} ({counter}){suffix}"
+                    counter += 1
+                used_names.add(final_name)
+                zf.writestr(final_name, content)
+
+        return buf.getvalue(), zip_filename
+
