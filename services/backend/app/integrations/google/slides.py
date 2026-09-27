@@ -1,7 +1,7 @@
 import asyncio
 import json
 import uuid
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Callable
 
 import httpx
 from app.core.logging import logger
@@ -250,6 +250,7 @@ class GoogleSlidesService:
         translate_images: bool = True,
         provider: Any = None,
         is_mock: bool = False,
+        on_progress: Optional[Callable[[str], Any]] = None,
     ) -> Dict[str, Any]:
         """SOTA Slide AST Myers Diff & Scoped Mutation Sync for Google Slides:
         1. Parses source and target presentations into structured SlideASTNode trees.
@@ -294,51 +295,72 @@ class GoogleSlidesService:
         temp_uploaded_drive_files: List[str] = []
 
         if translate_images:
+            images_to_process = []
+            for s in source_slides:
+                for el in s.elements:
+                    if el.element_type == SlideElementType.IMAGE and el.image_url:
+                        images_to_process.append((s, el))
+
+            total_imgs = len(images_to_process)
             async with httpx.AsyncClient(timeout=45.0) as http:
-                for s in source_slides:
-                    for el in s.elements:
-                        if el.element_type == SlideElementType.IMAGE and el.image_url:
+                for idx, (s, el) in enumerate(images_to_process):
+                    if on_progress:
+                        try:
+                            if asyncio.iscoroutinefunction(on_progress):
+                                await on_progress(f"Đang dịch hình ảnh bài thuyết trình ({idx + 1}/{total_imgs})...")
+                            else:
+                                res = on_progress(f"Đang dịch hình ảnh bài thuyết trình ({idx + 1}/{total_imgs})...")
+                                if asyncio.iscoroutine(res):
+                                    await res
+                        except Exception:
+                            pass
+                    try:
+                        img_res = await http.get(el.image_url)
+                        if img_res.status_code != 200:
+                            img_res = await http.get(el.image_url, headers=headers)
+                        if img_res.status_code == 200 and len(img_res.content) > 100:
+                            img_bytes = img_res.content
                             try:
-                                img_res = await http.get(el.image_url)
-                                if img_res.status_code != 200:
-                                    img_res = await http.get(el.image_url, headers=headers)
-                                if img_res.status_code == 200 and len(img_res.content) > 100:
-                                    img_bytes = img_res.content
-                                    try:
-                                        from app.documents.ocr.image_translator import image_translator
-                                        trans_bytes = await image_translator.process_image(
-                                            image_bytes=img_bytes,
-                                            src_lang=source_lang,
-                                            tgt_lang=target_lang,
-                                            ocr_engine=ocr_engine,
-                                            provider=provider
+                                from app.documents.ocr.image_translator import image_translator
+                                trans_bytes = await asyncio.wait_for(
+                                    image_translator.process_image(
+                                        image_bytes=img_bytes,
+                                        src_lang=source_lang,
+                                        tgt_lang=target_lang,
+                                        ocr_engine=ocr_engine,
+                                        provider=provider
+                                    ),
+                                    timeout=25.0
+                                )
+                                if trans_bytes and trans_bytes != img_bytes:
+                                    from app.integrations.google.drive import GoogleDriveService
+                                    temp_filename = f"temp_slide_img_{uuid.uuid4().hex[:8]}.png"
+                                    up_res = await GoogleDriveService.upload_file(
+                                        access_token=access_token,
+                                        filename=temp_filename,
+                                        content_bytes=trans_bytes,
+                                        mime_type="image/png",
+                                        parent_folder_id=parent_folder_id
+                                    )
+                                    temp_id = up_res.get("id")
+                                    if temp_id:
+                                        temp_uploaded_drive_files.append(temp_id)
+                                        # Set reader permission for Google Slides API to fetch image
+                                        await http.post(
+                                            f"https://www.googleapis.com/drive/v3/files/{temp_id}/permissions?supportsAllDrives=true",
+                                            headers=headers,
+                                            json={"role": "reader", "type": "anyone"}
                                         )
-                                        if trans_bytes and trans_bytes != img_bytes:
-                                            from app.integrations.google.drive import GoogleDriveService
-                                            temp_filename = f"temp_slide_img_{uuid.uuid4().hex[:8]}.png"
-                                            up_res = await GoogleDriveService.upload_file(
-                                                access_token=access_token,
-                                                filename=temp_filename,
-                                                content_bytes=trans_bytes,
-                                                mime_type="image/png",
-                                                parent_folder_id=parent_folder_id
-                                            )
-                                            temp_id = up_res.get("id")
-                                            if temp_id:
-                                                temp_uploaded_drive_files.append(temp_id)
-                                                # Set reader permission for Google Slides API to fetch image
-                                                await http.post(
-                                                    f"https://www.googleapis.com/drive/v3/files/{temp_id}/permissions?supportsAllDrives=true",
-                                                    headers=headers,
-                                                    json={"role": "reader", "type": "anyone"}
-                                                )
-                                                direct_url = f"https://lh3.googleusercontent.com/d/{temp_id}"
-                                                image_replacements[el.element_id] = direct_url
-                                                logger.info(f"Prepared OCR image replacement for slide element {el.element_id} -> {direct_url}")
-                                    except Exception as ocr_err:
-                                        logger.warning(f"Could not OCR translate slide image {el.element_id}: {ocr_err}")
-                            except Exception as dl_err:
-                                logger.debug(f"Could not download slide image {el.image_url}: {dl_err}")
+                                        direct_url = f"https://lh3.googleusercontent.com/d/{temp_id}"
+                                        image_replacements[el.element_id] = direct_url
+                                        logger.info(f"Prepared OCR image replacement for slide element {el.element_id} -> {direct_url}")
+                            except asyncio.TimeoutError:
+                                logger.warning(f"Timeout (25s) translating slide image {el.element_id}, skipping.")
+                                continue
+                            except Exception as ocr_err:
+                                logger.warning(f"Could not OCR translate slide image {el.element_id}: {ocr_err}")
+                    except Exception as dl_err:
+                        logger.debug(f"Could not download slide image {el.image_url}: {dl_err}")
 
         # 5. Plan Reverse-Index & Slide-Scoped batchUpdate requests
         batch_requests = SlideReverseIndexBatchPlanner.plan_batch_updates(
@@ -398,7 +420,8 @@ class GoogleSlidesService:
         target_lang: str = "ja",
         ocr_engine: str = "paddleocr",
         provider: Any = None,
-        is_mock: bool = False
+        is_mock: bool = False,
+        on_progress: Optional[Callable[[str], Any]] = None
     ) -> Dict[str, Any]:
         """Finds all images across all slides of a Google Presentation, translates them via ImageTranslator OCR,
         and replaces them in-place via Google Slides API replaceImage requests.
@@ -431,8 +454,17 @@ class GoogleSlidesService:
         headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
         replace_requests: List[Dict[str, Any]] = []
 
+        total_imgs = len(images_to_process)
         async with httpx.AsyncClient(timeout=60.0) as http:
-            for s_id, el_id, img_url in images_to_process:
+            for idx, (s_id, el_id, img_url) in enumerate(images_to_process):
+                if on_progress:
+                    try:
+                        if asyncio.iscoroutinefunction(on_progress):
+                            await on_progress(f"Đang dịch hình ảnh & sơ đồ bài thuyết trình ({idx + 1}/{total_imgs})...")
+                        else:
+                            on_progress(f"Đang dịch hình ảnh & sơ đồ bài thuyết trình ({idx + 1}/{total_imgs})...")
+                    except Exception:
+                        pass
                 try:
                     # Download image without Authorization header first (Google CDN pre-signed URL)
                     img_res = await http.get(img_url)
@@ -442,13 +474,20 @@ class GoogleSlidesService:
                         continue
 
                     img_bytes = img_res.content
-                    trans_bytes = await image_translator.process_image(
-                        image_bytes=img_bytes,
-                        src_lang=source_lang,
-                        tgt_lang=target_lang,
-                        ocr_engine=ocr_engine,
-                        provider=provider
-                    )
+                    try:
+                        trans_bytes = await asyncio.wait_for(
+                            image_translator.process_image(
+                                image_bytes=img_bytes,
+                                src_lang=source_lang,
+                                tgt_lang=target_lang,
+                                ocr_engine=ocr_engine,
+                                provider=provider
+                            ),
+                            timeout=25.0
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning(f"Timeout (25s) translating image in slide element {el_id}, skipping.")
+                        continue
 
                     if not trans_bytes or trans_bytes == img_bytes:
                         continue

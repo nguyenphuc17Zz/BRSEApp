@@ -46,6 +46,12 @@ import { useConfirm } from '../context/ConfirmDialogContext';
 import { ProviderModelSelector } from '../components/ProviderModelSelector';
 import { MarkdownView } from '../components/MarkdownView';
 import { resolveHealthyModel } from '../utils/aiPreferences';
+import { PageHeader } from '../components/ui/PageHeader';
+import { Card } from '../components/ui/Card';
+import { Badge } from '../components/ui/Badge';
+import { Button } from '../components/ui/Button';
+import { Modal } from '../components/ui/Modal';
+import { Select } from '../components/ui/Select';
 
 
 export function cleanSubtitleOrText(content: string, filename: string): string {
@@ -1181,477 +1187,471 @@ export const MeetingsPage: React.FC<MeetingsPageProps> = ({
 
   const getPriorityBadgeClass = (priority: string) => {
     const p = (priority || '').toUpperCase();
-    if (p.includes('HIGH')) return 'bg-rose-500/20 text-rose-300 border-rose-500/30';
-    if (p.includes('MED')) return 'bg-amber-500/20 text-amber-300 border-amber-500/30';
-    return 'bg-blue-500/20 text-blue-300 border-blue-500/30';
+    if (p.includes('HIGH') || p.includes('CRITICAL')) return 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30';
+    if (p.includes('MED')) return 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30';
+    return 'bg-primary-500/15 text-primary-600 dark:text-primary-400 border border-primary-500/30';
   };
 
   return (
-    <div className="flex-1 overflow-y-auto bg-slate-950 p-6 space-y-6">
+    <div className="flex-1 overflow-y-auto bg-canvas p-6 space-y-6">
       {/* Header */}
-      <div className="border-b border-slate-800 pb-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <span className="px-2 py-0.5 rounded text-[11px] font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-              <Sparkles className="w-3 h-3" /> Meeting Intelligence
-            </span>
-            <h1 className="text-xl font-bold text-white tracking-tight">Executive Meeting Minutes & Action Items</h1>
-          </div>
-          <p className="text-xs text-slate-400 mt-1">
-            Biến hội thoại họp tiếng Nhật thành Biên bản điều hành, trích xuất Quyết định kỹ thuật, Việc cần làm (Action Items) & Câu hỏi tồn đọng.
-          </p>
-        </div>
-
-        {/* Active Project Dropdown in Header */}
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-xs shadow-xs">
-          <Tag className="w-3.5 h-3.5 text-emerald-400" />
-          <span className="text-slate-400 font-semibold">Active Project:</span>
-          <select
+      <PageHeader
+        title="Biên bản cuộc họp"
+        actions={
+          <Select
             value={activeProject?.id || ''}
-            onChange={(e) => {
-              const found = allProjects.find(p => p.id === e.target.value);
+            onChange={(val) => {
+              const found = allProjects.find(p => p.id === val);
               setActiveProject?.(found || null);
               if (found) setSelectedProjectId(found.id);
             }}
-            className="bg-slate-950 border border-slate-800 text-emerald-300 font-medium rounded px-2.5 py-1 text-xs focus:outline-none focus:border-emerald-500 cursor-pointer"
-          >
-            <option value="">Tất cả dự án (All Projects)</option>
-            {allProjects.map(p => (
-              <option key={p.id} value={p.id}>📁 {p.name} ({p.code})</option>
-            ))}
-          </select>
-        </div>
-      </div>
+            prefix={<Tag className="w-3.5 h-3.5 text-emerald-500" />}
+            size="sm"
+            triggerClassName="min-w-[190px] max-w-[240px] text-xs font-semibold"
+            options={[
+              { value: '', label: 'Tất cả dự án' },
+              ...allProjects.map((p) => ({
+                value: p.id,
+                label: p.name,
+                sublabel: p.code
+              }))
+            ]}
+          />
+        }
+      />
 
       {/* Batch Processing Progress Bar Banner */}
       {batchProgress && (
-        <div className="p-4 rounded-xl bg-gradient-to-r from-slate-900 via-emerald-950/40 to-slate-900 border border-emerald-500/50 shadow-xl animate-fadeIn space-y-3">
+        <Card className="p-4 border-emerald-500/40 shadow-md space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-xs">
-                <RefreshCw className="w-5 h-5 animate-spin text-emerald-400" />
+              <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                <RefreshCw className="w-5 h-5 animate-spin" />
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-white uppercase tracking-wider">
+                  <span className="text-xs font-bold text-text-primary uppercase tracking-wider">
                     Đang phân tích hàng loạt: Cuộc họp [{batchProgress.current} / {batchProgress.total}]
                   </span>
-                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono font-bold border border-emerald-500/30">
+                  <Badge variant="success" size="sm">
                     {batchProgress.percent}%
-                  </span>
+                  </Badge>
                 </div>
-                <p className="text-[11px] text-slate-300 flex items-center gap-1.5 mt-0.5">
-                  <FileText className="w-3.5 h-3.5 text-emerald-400" />
-                  File hiện tại: <span className="font-semibold text-emerald-300 font-mono">{batchProgress.currentFileName}</span>
+                <p className="text-[11px] text-text-muted flex items-center gap-1.5 mt-0.5">
+                  <FileText className="w-3.5 h-3.5 text-emerald-500" />
+                  File hiện tại: <span className="font-semibold text-emerald-600 dark:text-emerald-400 font-mono">{batchProgress.currentFileName}</span>
                 </p>
               </div>
             </div>
 
-            <button
-              type="button"
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => {
                 cancelBatchRef.current = true;
                 toast.info("Đang yêu cầu dừng tiến trình sau file hiện tại...");
               }}
-              className="px-3.5 py-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 text-xs font-medium flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs whitespace-nowrap self-start sm:self-center"
+              leftIcon={<X className="w-3.5 h-3.5 text-rose-500" />}
+              className="text-rose-500 hover:text-rose-600 border-rose-500/30 hover:bg-rose-500/10"
             >
-              <X className="w-4 h-4 text-rose-400" />
-              <span>Hủy tiến trình</span>
-            </button>
+              Hủy tiến trình
+            </Button>
           </div>
 
           {/* Animated Progress Bar Track */}
-          <div className="w-full bg-slate-950 rounded-full h-2.5 overflow-hidden border border-slate-800 p-0.5">
+          <div className="w-full bg-canvas rounded-full h-2 overflow-hidden border border-border-subtle p-0.5">
             <div
-              className="bg-gradient-to-r from-emerald-500 via-teal-400 to-emerald-400 h-full rounded-full transition-all duration-500 shadow-sm"
+              className="bg-emerald-500 h-full rounded-full transition-all duration-500"
               style={{ width: `${Math.max(5, batchProgress.percent)}%` }}
             />
           </div>
-        </div>
+        </Card>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Input Form */}
-        <div className="lg:col-span-5 bg-slate-900/70 border border-slate-800 rounded-xl p-4 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2.5 border-b border-slate-800">
-            <h2 className="text-sm font-semibold text-white flex items-center gap-2">
-              <Users className="w-4 h-4 text-emerald-400" />
-              Meeting Transcript & Context
-            </h2>
+        <div className="lg:col-span-5">
+          <Card className="p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2.5 border-b border-border-subtle">
+              <h2 className="text-sm font-semibold text-text-primary flex items-center gap-2">
+                <Users className="w-4 h-4 text-emerald-500" />
+                Meeting Transcript & Context
+              </h2>
 
-            {/* Split AI Provider & Searchable Model Combobox */}
-            <ProviderModelSelector
-              providers={providers}
-              selectedProvider={selectedProvider}
-              onChangeProvider={setSelectedProvider}
-              selectedModel={selectedModel}
-              onChangeModel={setSelectedModel}
-              allowAutoRouter={true}
-              layout="inline"
-            />
-          </div>
-
-          {/* File Upload & Input Toolbar */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label className="text-[11px] font-medium text-slate-400 flex items-center gap-1.5">
-                <FileText className="w-3.5 h-3.5 text-slate-400" />
-                Nội dung hội thoại cuộc họp (Transcript):
-              </label>
-
-              {/* Upload Button */}
-              <div>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".txt,.vtt,.srt,text/plain"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => {
-                    if (e.target.files) handleFiles(e.target.files);
-                  }}
+              {/* Split AI Provider & Searchable Model Combobox */}
+              <div className="bg-canvas border border-border-subtle rounded-xl px-2 py-0.5">
+                <ProviderModelSelector
+                  providers={providers}
+                  selectedProvider={selectedProvider}
+                  onChangeProvider={setSelectedProvider}
+                  selectedModel={selectedModel}
+                  onChangeModel={setSelectedModel}
+                  allowAutoRouter={true}
+                  layout="inline"
                 />
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="px-3 py-1.5 text-xs rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 hover:border-emerald-500 transition flex items-center gap-1.5 cursor-pointer font-medium shadow-xs"
-                >
-                  <FileUp className="w-3.5 h-3.5 text-emerald-400" />
-                  Tải file (.txt, .vtt, .srt)
-                </button>
               </div>
             </div>
 
-            {/* Uploaded Files Badges & Order Manager with Drag & Drop */}
-            {uploadedFiles.length > 0 && (
-              <div className="p-3 rounded-xl bg-emerald-950/20 border border-emerald-500/30 space-y-2.5">
-                {/* Header & Controls */}
-                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                  <span className="font-semibold text-emerald-400 flex items-center gap-1.5">
-                    <Paperclip className="w-3.5 h-3.5" />
-                    Đã nạp {uploadedFiles.length} file cuộc họp:
-                  </span>
-                  <div className="flex items-center gap-2">
-                    {uploadedFiles.length > 1 && (
+            {/* File Upload & Input Toolbar */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-medium text-text-muted flex items-center gap-1.5">
+                  <FileText className="w-3.5 h-3.5 text-text-muted" />
+                  Nội dung hội thoại cuộc họp (Transcript):
+                </label>
+
+                {/* Upload Button */}
+                <div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".txt,.vtt,.srt,text/plain"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files) handleFiles(e.target.files);
+                    }}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                    leftIcon={<FileUp className="w-3.5 h-3.5 text-emerald-500" />}
+                    className="text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10 text-xs"
+                  >
+                    Tải file (.txt, .vtt, .srt)
+                  </Button>
+                </div>
+              </div>
+
+              {/* Uploaded Files Badges & Order Manager with Drag & Drop */}
+              {uploadedFiles.length > 0 && (
+                <div className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/30 space-y-2.5">
+                  {/* Header & Controls */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                    <span className="font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                      <Paperclip className="w-3.5 h-3.5" />
+                      Đã nạp {uploadedFiles.length} file cuộc họp:
+                    </span>
+                    <div className="flex items-center gap-2">
+                      {uploadedFiles.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={handleToggleSortDirection}
+                          className="px-2.5 py-1 rounded bg-surface-elevated hover:bg-border-subtle text-text-secondary border border-border-subtle transition flex items-center gap-1 text-[11px] cursor-pointer font-medium"
+                          title="Đổi chiều sắp xếp giữa Cũ ➔ Mới và Mới ➔ Cũ"
+                        >
+                          <ArrowUpDown className="w-3 h-3 text-amber-500" />
+                          <span>{sortOrder === 'asc' ? 'Xếp: Cũ ➔ Mới' : 'Xếp: Mới ➔ Cũ'}</span>
+                        </button>
+                      )}
                       <button
                         type="button"
-                        onClick={handleToggleSortDirection}
-                        className="px-2.5 py-1 rounded bg-emerald-600/30 hover:bg-emerald-600/40 text-emerald-300 border border-emerald-500/30 transition flex items-center gap-1 text-[11px] cursor-pointer font-medium shadow-2xs"
-                        title="Đổi chiều sắp xếp giữa Cũ ➔ Mới và Mới ➔ Cũ"
+                        onClick={handleClearFiles}
+                        className="text-text-muted hover:text-rose-500 transition flex items-center gap-1 text-[11px] cursor-pointer"
                       >
-                        <ArrowUpDown className="w-3 h-3 text-amber-400" />
-                        <span>{sortOrder === 'asc' ? '⚡ Xếp: Cũ ➔ Mới' : '⚡ Xếp: Mới ➔ Cũ'}</span>
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={handleClearFiles}
-                      className="text-slate-400 hover:text-rose-400 transition flex items-center gap-1 text-[11px] cursor-pointer"
-                    >
-                      <X className="w-3 h-3" /> Bỏ tất cả
-                    </button>
-                  </div>
-                </div>
-
-                {/* Reading Order & Detection Guidance Note */}
-                <div className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 text-[11px] space-y-1">
-                  <div className="flex items-center justify-between text-emerald-300 font-semibold">
-                    <span className="flex items-center gap-1.5">
-                      <Zap className="w-3.5 h-3.5 text-amber-400" />
-                      Thứ tự phân tích của AI: Đọc từ trên xuống dưới ({sortOrder === 'asc' ? 'Cũ ➔ Mới' : 'Mới ➔ Cũ'})
-                    </span>
-                    <span className="text-[10px] text-slate-400 font-normal flex items-center gap-1">
-                      <GripVertical className="w-3 h-3 text-emerald-400" /> Kéo thả thẻ để đổi vị trí
-                    </span>
-                  </div>
-                  <p className="text-slate-400 text-[10.5px] leading-relaxed">
-                    📌 <em>Tiến trình quyết định:</em> Quyết định ở buổi họp phía dưới sẽ <strong>bổ sung hoặc cập nhật thay thế</strong> quyết định của buổi họp phía trên.
-                    <br />
-                    💡 <em>Nhận diện đa định dạng:</em> Quét Tên file ➔ 35 dòng đầu transcript ➔ Thứ tự Tuần / Sprint / Buổi họp (hỗ trợ tiếng Nhật Reiwa/Heisei, ISO, Việt Nam, Anh).
-                  </p>
-                </div>
-
-                {/* Draggable File Cards List */}
-                <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-0.5">
-                  {uploadedFiles.map((f, idx) => (
-                    <div
-                      key={f.id}
-                      draggable={true}
-                      onDragStart={(e) => handleFileDragStart(e, idx)}
-                      onDragOver={(e) => handleFileDragOver(e, idx)}
-                      onDragLeave={handleFileDragLeave}
-                      onDrop={(e) => handleFileDrop(e, idx)}
-                      onDragEnd={handleFileDragEnd}
-                      className={`flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition select-none cursor-grab active:cursor-grabbing ${
-                        draggedFileIndex === idx
-                          ? 'opacity-40 border-2 border-dashed border-emerald-500 bg-emerald-950/20'
-                          : dragOverFileIndex === idx
-                          ? 'border-2 border-emerald-400 bg-emerald-950/50 scale-[1.01] shadow-md ring-2 ring-emerald-500/20'
-                          : 'bg-slate-900/90 border border-slate-700/80 hover:border-slate-600'
-                      }`}
-                      title="Kéo thả thẻ này để thay đổi thứ tự tiến trình cuộc họp"
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        {/* Drag Handle Grip Icon */}
-                        <div className="text-slate-500 hover:text-slate-300 p-0.5 cursor-grab">
-                          <GripVertical className="w-3.5 h-3.5" />
-                        </div>
-
-                        {/* Position Index Badge */}
-                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono flex-shrink-0">
-                          #{idx + 1}
-                        </span>
-
-                        <FileText className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
-                        
-                        {/* Filename & Size */}
-                        <span className="font-medium text-slate-200 truncate max-w-[140px] sm:max-w-[200px]" title={f.name}>
-                          {f.name}
-                        </span>
-                        <span className="text-slate-500 text-[10px] flex-shrink-0">({formatFileSize(f.size)})</span>
-                        
-                        {/* Date / Sequence Badge */}
-                        {f.displayLabel ? (
-                          <span className={`px-1.5 py-0.5 rounded border text-[10px] font-mono flex items-center gap-1 flex-shrink-0 ${
-                            f.source === 'sequence' 
-                              ? 'bg-sky-500/15 border-sky-500/30 text-sky-300' 
-                              : 'bg-amber-500/15 border-amber-500/30 text-amber-300'
-                          }`}>
-                            <Calendar className="w-2.5 h-2.5" />
-                            <span>{f.displayLabel}</span>
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-slate-500 italic flex-shrink-0">Chưa rõ ngày</span>
-                        )}
-                      </div>
-
-                      {/* Remove Single File Button */}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleRemoveFile(idx);
-                        }}
-                        className="text-slate-500 hover:text-rose-400 p-1 rounded hover:bg-slate-800 transition flex-shrink-0 ml-2"
-                        title="Xóa file này khỏi danh sách gộp"
-                      >
-                        <X className="w-3.5 h-3.5" />
+                        <X className="w-3 h-3" /> Bỏ tất cả
                       </button>
                     </div>
-                  ))}
+                  </div>
+
+                  {/* Reading Order & Detection Guidance Note */}
+                  <div className="p-2.5 rounded-lg bg-canvas border border-border-subtle text-[11px] space-y-1">
+                    <div className="flex items-center justify-between text-emerald-600 dark:text-emerald-400 font-semibold">
+                      <span className="flex items-center gap-1.5">
+                        <Zap className="w-3.5 h-3.5 text-amber-500" />
+                        Thứ tự phân tích của AI: Đọc từ trên xuống dưới ({sortOrder === 'asc' ? 'Cũ ➔ Mới' : 'Mới ➔ Cũ'})
+                      </span>
+                      <span className="text-[10px] text-text-muted font-normal flex items-center gap-1">
+                        <GripVertical className="w-3 h-3 text-emerald-500" /> Kéo thả thẻ để đổi vị trí
+                      </span>
+                    </div>
+                    <p className="text-text-muted text-[10.5px] leading-relaxed">
+                      📌 <em>Tiến trình quyết định:</em> Quyết định ở buổi họp phía dưới sẽ <strong>bổ sung hoặc cập nhật thay thế</strong> quyết định của buổi họp phía trên.
+                    </p>
+                  </div>
+
+                  {/* Draggable File Cards List */}
+                  <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-0.5">
+                    {uploadedFiles.map((f, idx) => (
+                      <div
+                        key={f.id}
+                        draggable={true}
+                        onDragStart={(e) => handleFileDragStart(e, idx)}
+                        onDragOver={(e) => handleFileDragOver(e, idx)}
+                        onDragLeave={handleFileDragLeave}
+                        onDrop={(e) => handleFileDrop(e, idx)}
+                        onDragEnd={handleFileDragEnd}
+                        className={`flex items-center justify-between px-2.5 py-2 rounded-lg text-xs transition select-none cursor-grab active:cursor-grabbing ${
+                          draggedFileIndex === idx
+                            ? 'opacity-40 border-2 border-dashed border-emerald-500 bg-emerald-500/10'
+                            : dragOverFileIndex === idx
+                            ? 'border-2 border-emerald-500 bg-emerald-500/20 scale-[1.01] ring-2 ring-emerald-500/20'
+                            : 'bg-canvas border border-border-subtle hover:border-primary-500/40'
+                        }`}
+                        title="Kéo thả thẻ này để thay đổi thứ tự tiến trình cuộc họp"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          {/* Drag Handle Grip Icon */}
+                          <div className="text-text-muted hover:text-text-primary p-0.5 cursor-grab">
+                            <GripVertical className="w-3.5 h-3.5" />
+                          </div>
+
+                          {/* Position Index Badge */}
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-surface-elevated text-text-secondary font-mono shrink-0">
+                            #{idx + 1}
+                          </span>
+
+                          <FileText className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                          
+                          {/* Filename & Size */}
+                          <span className="font-medium text-text-primary truncate max-w-[140px] sm:max-w-[200px]" title={f.name}>
+                            {f.name}
+                          </span>
+                          <span className="text-text-muted text-[10px] shrink-0">({formatFileSize(f.size)})</span>
+                          
+                          {/* Date / Sequence Badge */}
+                          {f.displayLabel ? (
+                            <span className={`px-1.5 py-0.5 rounded border text-[10px] font-mono flex items-center gap-1 shrink-0 ${
+                              f.source === 'sequence' 
+                                ? 'bg-primary-500/15 border-primary-500/30 text-primary-600 dark:text-primary-400' 
+                                : 'bg-amber-500/15 border-amber-500/30 text-amber-600 dark:text-amber-400'
+                            }`}>
+                              <Calendar className="w-2.5 h-2.5" />
+                              <span>{f.displayLabel}</span>
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-text-muted italic shrink-0">Chưa rõ ngày</span>
+                          )}
+                        </div>
+
+                        {/* Remove Single File Button */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRemoveFile(idx);
+                          }}
+                          className="text-text-muted hover:text-rose-500 p-1 rounded hover:bg-surface-elevated transition shrink-0 ml-2 cursor-pointer"
+                          title="Xóa file này khỏi danh sách gộp"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
+              )}
+            </div>
+
+            {/* Project Selection for Meeting */}
+            <div>
+              <label className="text-[11px] text-text-muted block mb-1 font-medium flex items-center gap-1.5">
+                <Tag className="w-3 h-3 text-emerald-500" />
+                Dự án áp dụng
+              </label>
+              <Select
+                value={selectedProjectId}
+                onChange={(val) => {
+                  setSelectedProjectId(val);
+                  const found = allProjects.find(p => p.id === val);
+                  if (found) {
+                    setActiveProject?.(found);
+                  }
+                }}
+                size="md"
+                className="w-full"
+                options={[
+                  ...allProjects.map((p) => ({
+                    value: p.id,
+                    label: p.name,
+                    sublabel: p.code
+                  })),
+                  ...(allProjects.length === 0 ? [{ value: '', label: 'Dự án mặc định' }] : [])
+                ]}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div>
+                <label className="text-[11px] text-text-muted block mb-1">Tiêu đề cuộc họp</label>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Ví dụ: Họp Sprint Architecture & Kế hoạch UAT..."
+                  className="w-full bg-canvas border border-border-subtle rounded-lg px-3 py-2 text-text-primary focus:outline-none focus:border-emerald-500 placeholder:text-text-muted"
+                />
               </div>
-            )}
-          </div>
+              <div>
+                <label className="text-[11px] text-text-muted block mb-1">Ngày họp</label>
+                <input
+                  type="date"
+                  value={meetingDate}
+                  onChange={(e) => setMeetingDate(e.target.value)}
+                  className="w-full bg-canvas border border-border-subtle rounded-lg px-3 py-2 text-text-primary focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+            </div>
 
-          {/* Project Selection for Meeting */}
-          <div>
-            <label className="text-[11px] text-slate-400 block mb-1 font-medium flex items-center gap-1.5">
-              <Tag className="w-3 h-3 text-emerald-400" />
-              Dự án áp dụng (Target Project)
-            </label>
-            <select
-              value={selectedProjectId}
-              onChange={(e) => {
-                const newId = e.target.value;
-                setSelectedProjectId(newId);
-                const found = allProjects.find(p => p.id === newId);
-                if (found) {
-                  setActiveProject?.(found);
-                }
+            {/* Transcript Area with Drag & Drop */}
+            <div
+              className="relative"
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDragging(true);
               }}
-              className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 cursor-pointer font-medium"
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDragging(false);
+                if (e.dataTransfer.files) handleFiles(e.dataTransfer.files);
+              }}
             >
-              {allProjects.map(p => (
-                <option key={p.id} value={p.id}>📁 {p.name} ({p.code})</option>
-              ))}
-              {allProjects.length === 0 && (
-                <option value="">Mặc định (Default Project)</option>
-              )}
-            </select>
-          </div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[11px] text-text-muted">Nội dung trao đổi / Transcript</label>
+                <span className="text-[10px] text-text-muted">Hỗ trợ dán hoặc kéo thả .txt, .vtt, .srt</span>
+              </div>
 
-          <div className="grid grid-cols-2 gap-3 text-xs">
-            <div>
-              <label className="text-[11px] text-slate-400 block mb-1">Tiêu đề cuộc họp</label>
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Ví dụ: Họp Sprint Architecture & Kế hoạch UAT..."
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-emerald-500"
-              />
-            </div>
-            <div>
-              <label className="text-[11px] text-slate-400 block mb-1">Ngày họp</label>
-              <input
-                type="date"
-                value={meetingDate}
-                onChange={(e) => setMeetingDate(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-emerald-500"
-              />
-            </div>
-          </div>
+              <div className="relative">
+                <textarea
+                  value={transcript}
+                  onChange={(e) => setTranscript(e.target.value)}
+                  rows={11}
+                  placeholder="Dán nội dung chat hoặc kéo thả các file .txt, .vtt, .srt tại đây..."
+                  className={`w-full bg-canvas border rounded-xl p-3 text-xs text-text-primary font-mono resize-none focus:outline-none transition leading-relaxed placeholder:text-text-muted ${
+                    isDragging 
+                      ? 'border-emerald-500 ring-2 ring-emerald-500/20 bg-emerald-500/5' 
+                      : 'border-border-subtle focus:border-emerald-500'
+                  }`}
+                />
 
-          {/* Transcript Area with Drag & Drop */}
-          <div
-            className="relative"
-            onDragOver={(e) => {
-              e.preventDefault();
-              setIsDragging(true);
-            }}
-            onDragLeave={() => setIsDragging(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setIsDragging(false);
-              if (e.dataTransfer.files) handleFiles(e.dataTransfer.files);
-            }}
-          >
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-[11px] text-slate-400">Nội dung trao đổi / Transcript</label>
-              <span className="text-[10px] text-slate-500">Hỗ trợ dán hoặc kéo thả .txt, .vtt, .srt</span>
+                {isDragging && (
+                  <div className="absolute inset-0 bg-surface/90 backdrop-blur-xs border-2 border-dashed border-emerald-500 rounded-xl flex flex-col items-center justify-center pointer-events-none text-emerald-600 dark:text-emerald-400 gap-2">
+                    <Upload className="w-8 h-8 animate-bounce text-emerald-500" />
+                    <div className="font-semibold text-xs">Thả các file .txt, .vtt, .srt vào đây</div>
+                    <div className="text-[11px] opacity-80">Tự động làm sạch timestamp và gộp nội dung</div>
+                  </div>
+                )}
+              </div>
             </div>
 
-            <div className="relative">
-              <textarea
-                value={transcript}
-                onChange={(e) => setTranscript(e.target.value)}
-                rows={11}
-                placeholder="Dán nội dung chat hoặc kéo thả các file .txt, .vtt, .srt tại đây..."
-                className={`w-full bg-slate-950 border rounded-lg p-3 text-xs text-slate-200 font-mono resize-none focus:outline-none transition leading-relaxed ${
-                  isDragging 
-                    ? 'border-emerald-400 ring-2 ring-emerald-500/20 bg-emerald-950/20' 
-                    : 'border-slate-800 focus:border-emerald-500'
-                }`}
-              />
-
-              {isDragging && (
-                <div className="absolute inset-0 bg-emerald-950/90 backdrop-blur-xs border-2 border-dashed border-emerald-400 rounded-lg flex flex-col items-center justify-center pointer-events-none text-emerald-300 gap-2">
-                  <Upload className="w-8 h-8 animate-bounce text-emerald-400" />
-                  <div className="font-semibold text-xs">Thả các file .txt, .vtt, .srt vào đây</div>
-                  <div className="text-[11px] text-emerald-400/80">Tự động làm sạch timestamp và gộp nội dung</div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <button
-            onClick={handleGenerateMinutes}
-            disabled={generating || !transcript.trim()}
-            className="flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold shadow-lg shadow-emerald-950/40 transition cursor-pointer"
-          >
-            {generating ? (
-              <>
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                {uploadedFiles.length >= 2 
-                  ? `Đang tổng hợp ${uploadedFiles.length} buổi họp qua Map-Reduce...` 
-                  : 'Đang phân tích & trích xuất biên bản...'}
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-3.5 h-3.5" />
-                Generate Executive Minutes & Action Items
-              </>
-            )}
-          </button>
+            <Button
+              variant="primary"
+              onClick={handleGenerateMinutes}
+              disabled={generating || !transcript.trim()}
+              isLoading={generating}
+              leftIcon={<Sparkles className="w-3.5 h-3.5" />}
+              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white"
+            >
+              {uploadedFiles.length >= 2 
+                ? `Tổng hợp ${uploadedFiles.length} buổi họp qua Map-Reduce` 
+                : 'Generate Executive Minutes & Action Items'}
+            </Button>
+          </Card>
         </div>
 
         {/* Right Column: Structured Output */}
-        <div className="lg:col-span-7 bg-slate-900/70 border border-slate-800 rounded-xl p-4 space-y-4 flex flex-col">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
-            <div className="flex items-center gap-2">
-              <FileText className="w-4 h-4 text-emerald-400" />
-              <h2 className="text-sm font-semibold text-white">Kết quả biên bản cuộc họp</h2>
-            </div>
-            
-            {/* Language Switcher & Export Hub */}
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Language Toggle */}
-              <div className="flex items-center bg-slate-950 p-0.5 rounded-lg border border-slate-800 text-[11px]">
-                <button
-                  type="button"
-                  onClick={() => setLanguageView('vi')}
-                  className={`px-2 py-1 rounded transition cursor-pointer font-medium flex items-center gap-1 ${
-                    languageView === 'vi' 
-                      ? 'bg-emerald-600 text-white shadow-xs' 
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                  title="Xem biên bản bằng Tiếng Việt (Dành cho Dev & Quản lý)"
-                >
-                  <span>🇻🇳</span> VI
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setLanguageView('ja')}
-                  className={`px-2 py-1 rounded transition cursor-pointer font-medium flex items-center gap-1 ${
-                    languageView === 'ja' 
-                      ? 'bg-emerald-600 text-white shadow-xs' 
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                  title="Xem biên bản bằng Tiếng Nhật (Dành cho Khách hàng & Stakeholders)"
-                >
-                  <span>🇯🇵</span> JA
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setLanguageView('bilingual')}
-                  className={`px-2 py-1 rounded transition cursor-pointer font-medium flex items-center gap-1 ${
-                    languageView === 'bilingual' 
-                      ? 'bg-emerald-600 text-white shadow-xs' 
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                  title="Xem song ngữ song song cả Tiếng Nhật và Tiếng Việt"
-                >
-                  <span>🌐</span> Song ngữ
-                </button>
+        <div className="lg:col-span-7">
+          <Card className="p-5 space-y-4 flex flex-col h-full">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border-subtle pb-3">
+              <div className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-emerald-500" />
+                <h2 className="text-sm font-semibold text-text-primary">Kết quả biên bản cuộc họp</h2>
               </div>
-
-              {currentResult && (
-                <div className="flex items-center gap-1.5">
+              
+              {/* Language Switcher & Export Hub */}
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Language Toggle */}
+                <div className="flex items-center bg-canvas p-0.5 rounded-lg border border-border-subtle text-[11px]">
                   <button
-                    onClick={handleOpenEmailModal}
-                    className="flex items-center gap-1 text-[11px] px-2.5 py-1 rounded bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 border border-indigo-500/40 transition cursor-pointer font-medium"
-                    title="Mở mẫu email gửi biên bản bằng tiếng Nhật chuẩn Keigo"
+                    type="button"
+                    onClick={() => setLanguageView('vi')}
+                    className={`px-2 py-1 rounded transition cursor-pointer font-medium flex items-center gap-1 ${
+                      languageView === 'vi' 
+                        ? 'bg-emerald-600 text-white shadow-xs' 
+                        : 'text-text-muted hover:text-text-primary'
+                    }`}
+                    title="Xem biên bản bằng Tiếng Việt"
                   >
-                    <Mail className="w-3.5 h-3.5 text-indigo-400" />
-                    <span>Email JA</span>
+                    <span>🇻🇳</span> VI
                   </button>
                   <button
-                    onClick={handleDownloadMarkdown}
-                    className="flex items-center gap-1 text-[11px] px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition cursor-pointer font-medium"
-                    title="Tải biên bản về máy định dạng Markdown (.md)"
+                    type="button"
+                    onClick={() => setLanguageView('ja')}
+                    className={`px-2 py-1 rounded transition cursor-pointer font-medium flex items-center gap-1 ${
+                      languageView === 'ja' 
+                        ? 'bg-emerald-600 text-white shadow-xs' 
+                        : 'text-text-muted hover:text-text-primary'
+                    }`}
+                    title="Xem biên bản bằng Tiếng Nhật"
                   >
-                    <Download className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Tải .md</span>
+                    <span>🇯🇵</span> JA
                   </button>
                   <button
-                    onClick={() => copySummary()}
-                    className="flex items-center gap-1 text-[11px] px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 transition cursor-pointer"
-                    title="Copy phần tóm tắt điều hành"
+                    type="button"
+                    onClick={() => setLanguageView('bilingual')}
+                    className={`px-2 py-1 rounded transition cursor-pointer font-medium flex items-center gap-1 ${
+                      languageView === 'bilingual' 
+                        ? 'bg-emerald-600 text-white shadow-xs' 
+                        : 'text-text-muted hover:text-text-primary'
+                    }`}
+                    title="Xem song ngữ Nhật - Việt"
                   >
-                    {copiedSummary ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedSummary ? 'Đã copy' : 'Tóm tắt'}</span>
-                  </button>
-                  <button
-                    onClick={copyFullReport}
-                    className="flex items-center gap-1 text-[11px] px-2.5 py-1 rounded bg-emerald-600/80 hover:bg-emerald-600 text-white font-medium transition shadow cursor-pointer"
-                    title="Copy toàn bộ biên bản, quyết định và action items"
-                  >
-                    {copiedAll ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedAll ? 'Đã copy' : 'Toàn bộ'}</span>
+                    <span>🌐</span> Song ngữ
                   </button>
                 </div>
-              )}
+
+                {currentResult && (
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleOpenEmailModal}
+                      leftIcon={<Mail className="w-3.5 h-3.5 text-indigo-500" />}
+                      className="text-indigo-600 dark:text-indigo-400 border-indigo-500/30 hover:bg-indigo-500/10 text-xs"
+                    >
+                      Email JA
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleDownloadMarkdown}
+                      leftIcon={<Download className="w-3.5 h-3.5 text-text-muted" />}
+                      className="text-xs"
+                    >
+                      Tải .md
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => copySummary()}
+                      leftIcon={copiedSummary ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5 text-text-muted" />}
+                      className="text-xs"
+                    >
+                      {copiedSummary ? 'Đã copy' : 'Tóm tắt'}
+                    </Button>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={copyFullReport}
+                      leftIcon={copiedAll ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      className="text-xs bg-emerald-600 hover:bg-emerald-500 text-white"
+                    >
+                      {copiedAll ? 'Đã copy' : 'Toàn bộ'}
+                    </Button>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
 
           {currentResult ? (
             <div className="space-y-4 text-xs overflow-y-auto max-h-[640px] pr-1">
               {/* Executive Summary Section */}
               <div className="space-y-1.5">
-                <div className="text-[11px] font-bold text-slate-300 uppercase tracking-wider flex items-center justify-between">
+                <div className="text-[11px] font-bold text-text-secondary uppercase tracking-wider flex items-center justify-between">
                   <span className="flex items-center gap-1.5">
-                    <FileText className="w-3.5 h-3.5 text-emerald-400" />
+                    <FileText className="w-3.5 h-3.5 text-emerald-500" />
                     {languageView === 'ja' ? 'エグゼクティブサマリー (Executive Summary)' : 
                      languageView === 'vi' ? 'Tóm tắt điều hành (Executive Summary)' : 
                      'Executive Summary (Song ngữ JA / VI)'}
@@ -1661,15 +1661,15 @@ export const MeetingsPage: React.FC<MeetingsPageProps> = ({
                       onClick={() => setIsRawSummaryMode(!isRawSummaryMode)}
                       className={`flex items-center gap-1 text-[10.5px] px-2 py-0.5 rounded border transition cursor-pointer font-normal normal-case ${
                         isRawSummaryMode
-                          ? 'bg-amber-950/60 border-amber-700/50 text-amber-300 shadow-xs'
-                          : 'bg-slate-800/80 border-slate-700/60 text-slate-300 hover:bg-slate-700 hover:text-white'
+                          ? 'bg-amber-500/15 border-amber-500/30 text-amber-600 dark:text-amber-400'
+                          : 'bg-surface-elevated border-border-subtle text-text-secondary hover:text-text-primary'
                       }`}
                       title={isRawSummaryMode ? "Chuyển sang chế độ xem trực quan Markdown" : "Xem mã nguồn Markdown gốc"}
                     >
-                      {isRawSummaryMode ? <Eye className="w-3 h-3 text-amber-400" /> : <Code className="w-3 h-3 text-emerald-400" />}
+                      {isRawSummaryMode ? <Eye className="w-3 h-3 text-amber-500" /> : <Code className="w-3 h-3 text-emerald-500" />}
                       <span>{isRawSummaryMode ? 'Xem trực quan' : 'Xem mã MD'}</span>
                     </button>
-                    <span className="text-[10px] text-slate-500 font-normal lowercase">
+                    <span className="text-[10px] text-text-muted font-normal lowercase">
                       {languageView === 'ja' ? '🇯🇵 日本語表示' : languageView === 'vi' ? '🇻🇳 Tiếng Việt' : '🌐 Song ngữ'}
                     </span>
                   </div>
@@ -1678,17 +1678,17 @@ export const MeetingsPage: React.FC<MeetingsPageProps> = ({
                 {languageView === 'bilingual' ? (
                   <div className="space-y-2.5">
                     {currentResult.summary_ja && (
-                      <div className="bg-slate-950/90 p-3.5 rounded-lg border border-slate-800 space-y-1.5 shadow-xs">
-                        <div className="text-[10px] font-bold text-emerald-400 flex items-center justify-between pb-1 border-b border-slate-800/60">
+                      <div className="bg-canvas p-3.5 rounded-xl border border-border-subtle space-y-1.5">
+                        <div className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center justify-between pb-1 border-b border-border-subtle">
                           <span className="flex items-center gap-1">
                             <span>🇯🇵</span> 日本語サマリー（顧客・ステークホルダー向け）
                           </span>
                           {isRawSummaryMode && (
-                            <span className="text-[9.5px] font-mono text-amber-400/80 uppercase font-normal">Raw Markdown</span>
+                            <span className="text-[9.5px] font-mono text-amber-500 uppercase font-normal">Raw Markdown</span>
                           )}
                         </div>
                         {isRawSummaryMode ? (
-                          <div className="whitespace-pre-wrap font-mono text-[11px] text-slate-300 bg-slate-900/60 p-2.5 rounded border border-slate-800/80 leading-relaxed">
+                          <div className="whitespace-pre-wrap font-mono text-[11px] text-text-primary bg-surface-elevated p-2.5 rounded border border-border-subtle leading-relaxed">
                             {currentResult.summary_ja}
                           </div>
                         ) : (
@@ -1696,17 +1696,17 @@ export const MeetingsPage: React.FC<MeetingsPageProps> = ({
                         )}
                       </div>
                     )}
-                    <div className="bg-slate-950/90 p-3.5 rounded-lg border border-slate-800 space-y-1.5 shadow-xs">
-                      <div className="text-[10px] font-bold text-sky-400 flex items-center justify-between pb-1 border-b border-slate-800/60">
+                    <div className="bg-canvas p-3.5 rounded-xl border border-border-subtle space-y-1.5">
+                      <div className="text-[10px] font-bold text-primary-600 dark:text-primary-400 flex items-center justify-between pb-1 border-b border-border-subtle">
                         <span className="flex items-center gap-1">
                           <span>🇻🇳</span> Tóm tắt Tiếng Việt（Team Kỹ thuật & Quản lý）
                         </span>
                         {isRawSummaryMode && (
-                          <span className="text-[9.5px] font-mono text-amber-400/80 uppercase font-normal">Raw Markdown</span>
+                          <span className="text-[9.5px] font-mono text-amber-500 uppercase font-normal">Raw Markdown</span>
                         )}
                       </div>
                       {isRawSummaryMode ? (
-                        <div className="whitespace-pre-wrap font-mono text-[11px] text-slate-300 bg-slate-900/60 p-2.5 rounded border border-slate-800/80 leading-relaxed">
+                        <div className="whitespace-pre-wrap font-mono text-[11px] text-text-primary bg-surface-elevated p-2.5 rounded border border-border-subtle leading-relaxed">
                           {currentResult.summary_vi || currentResult.summary_markdown}
                         </div>
                       ) : (
@@ -1715,11 +1715,11 @@ export const MeetingsPage: React.FC<MeetingsPageProps> = ({
                     </div>
                   </div>
                 ) : (
-                  <div className="bg-slate-950/80 p-3.5 rounded-lg border border-slate-800/80 shadow-xs">
+                  <div className="bg-canvas p-3.5 rounded-xl border border-border-subtle">
                     {isRawSummaryMode ? (
                       <div className="space-y-1.5">
-                        <div className="text-[9.5px] font-mono text-amber-400/80 uppercase">Raw Markdown Source</div>
-                        <div className="whitespace-pre-wrap font-mono text-[11px] text-slate-300 bg-slate-900/60 p-2.5 rounded border border-slate-800/80 leading-relaxed">
+                        <div className="text-[9.5px] font-mono text-amber-500 uppercase">Raw Markdown Source</div>
+                        <div className="whitespace-pre-wrap font-mono text-[11px] text-text-primary bg-surface-elevated p-2.5 rounded border border-border-subtle leading-relaxed">
                           {languageView === 'ja'
                             ? (currentResult.summary_ja || currentResult.summary_markdown)
                             : (currentResult.summary_vi || currentResult.summary_markdown)}
@@ -1737,16 +1737,15 @@ export const MeetingsPage: React.FC<MeetingsPageProps> = ({
                 )}
               </div>
 
-
               {/* Action Items List */}
               {currentResult.action_items?.length > 0 && (
                 <div className="space-y-2">
-                  <div className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider flex items-center justify-between">
+                  <div className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider flex items-center justify-between">
                     <span className="flex items-center gap-1.5">
                       <CheckSquare className="w-3.5 h-3.5" /> 
                       {languageView === 'ja' ? 'アクションアイテム（Action Items）' : 'Action Items & Việc cần làm'} ({currentResult.action_items.length})
                     </span>
-                    <span className="text-[10px] text-slate-400 lowercase font-normal">
+                    <span className="text-[10px] text-text-muted lowercase font-normal">
                       Tự động đồng bộ sang BrSE Dashboard
                     </span>
                   </div>
@@ -1755,9 +1754,9 @@ export const MeetingsPage: React.FC<MeetingsPageProps> = ({
                       const taskVi = act.task_vi || act.task || act.task_ja || '';
                       const taskJa = act.task_ja || act.task || act.task_vi || '';
                       return (
-                        <div key={i} className="p-2.5 rounded-lg bg-slate-950/90 border border-slate-800 hover:border-slate-700 transition space-y-1.5">
+                        <div key={i} className="p-3 rounded-xl bg-canvas border border-border-subtle hover:border-primary-500/40 transition space-y-1.5">
                           <div className="flex items-start justify-between gap-2">
-                            <div className="font-medium text-slate-200 leading-snug space-y-1">
+                            <div className="font-medium text-text-primary leading-snug space-y-1">
                               {languageView === 'ja' ? (
                                 <div>{taskJa}</div>
                               ) : languageView === 'vi' ? (
@@ -1765,28 +1764,28 @@ export const MeetingsPage: React.FC<MeetingsPageProps> = ({
                               ) : (
                                 <>
                                   <div className="flex items-start gap-1.5">
-                                    <span className="text-[10px] px-1 rounded bg-slate-800 text-slate-300 font-mono flex-shrink-0 mt-0.5">VI</span>
+                                    <span className="text-[10px] px-1 rounded bg-surface-elevated text-text-secondary font-mono shrink-0 mt-0.5">VI</span>
                                     <span>{taskVi}</span>
                                   </div>
                                   {act.task_ja && act.task_ja !== taskVi && (
-                                    <div className="flex items-start gap-1.5 text-slate-400 text-[11px]">
-                                      <span className="text-[10px] px-1 rounded bg-slate-800 text-emerald-400 font-mono flex-shrink-0 mt-0.5">JA</span>
+                                    <div className="flex items-start gap-1.5 text-text-muted text-[11px]">
+                                      <span className="text-[10px] px-1 rounded bg-surface-elevated text-emerald-500 font-mono shrink-0 mt-0.5">JA</span>
                                       <span>{act.task_ja}</span>
                                     </div>
                                   )}
                                 </>
                               )}
                             </div>
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase flex-shrink-0 ${getPriorityBadgeClass(act.priority)}`}>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase shrink-0 ${getPriorityBadgeClass(act.priority)}`}>
                               {act.priority || 'HIGH'}
                             </span>
                           </div>
-                          <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1 border-t border-slate-900">
+                          <div className="flex items-center justify-between text-[11px] text-text-muted pt-1 border-t border-border-subtle">
                             <span className="flex items-center gap-1">
-                              <Users className="w-3 h-3 text-slate-500" />
-                              Phụ trách: <strong className="text-slate-300 font-semibold">{act.assignee || 'Unassigned'}</strong>
+                              <Users className="w-3 h-3 text-text-muted" />
+                              Phụ trách: <strong className="text-text-primary font-semibold">{act.assignee || 'Unassigned'}</strong>
                             </span>
-                            <span className="font-mono text-amber-400 flex items-center gap-1">
+                            <span className="font-mono text-amber-600 dark:text-amber-400 flex items-center gap-1">
                               <Clock className="w-3 h-3" />
                               Hạn chót: {act.due_date || 'Chưa xác định'}
                             </span>
@@ -1801,7 +1800,7 @@ export const MeetingsPage: React.FC<MeetingsPageProps> = ({
               {/* Decisions List */}
               {currentResult.decisions?.length > 0 && (
                 <div className="space-y-2">
-                  <div className="text-[11px] font-bold text-sky-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <div className="text-[11px] font-bold text-primary-600 dark:text-primary-400 uppercase tracking-wider flex items-center gap-1.5">
                     <ShieldCheck className="w-3.5 h-3.5" />
                     {languageView === 'ja' ? '決定事項（Key Decisions）' : 'Quyết định đã chốt (Key Decisions)'} ({currentResult.decisions.length})
                   </div>
@@ -1813,51 +1812,51 @@ export const MeetingsPage: React.FC<MeetingsPageProps> = ({
                       const detailJa = dec.detail_ja || dec.detail || dec.detail_vi || '';
 
                       return (
-                        <div key={i} className="p-2.5 rounded-lg bg-slate-950/90 border border-slate-800 space-y-1.5">
+                        <div key={i} className="p-3 rounded-xl bg-canvas border border-border-subtle space-y-1.5">
                           {languageView === 'ja' ? (
                             <>
-                              <div className="font-semibold text-slate-200 flex items-center gap-1.5">
-                                <span className="w-1.5 h-1.5 rounded-full bg-sky-400"></span>
+                              <div className="font-semibold text-text-primary flex items-center gap-1.5">
+                                <span className="w-1.5 h-1.5 rounded-full bg-primary-500"></span>
                                 {titleJa}
                               </div>
                               {detailJa && (
-                                <div className="text-[11px] text-slate-300 pl-3 leading-relaxed">
+                                <div className="text-[11px] text-text-secondary pl-3 leading-relaxed">
                                   {detailJa}
                                 </div>
                               )}
                             </>
                           ) : languageView === 'vi' ? (
                             <>
-                              <div className="font-semibold text-slate-200 flex items-center gap-1.5">
-                                <span className="w-1.5 h-1.5 rounded-full bg-sky-400"></span>
+                              <div className="font-semibold text-text-primary flex items-center gap-1.5">
+                                <span className="w-1.5 h-1.5 rounded-full bg-primary-500"></span>
                                 {titleVi}
                               </div>
                               {detailVi && (
-                                <div className="text-[11px] text-slate-300 pl-3 leading-relaxed">
+                                <div className="text-[11px] text-text-secondary pl-3 leading-relaxed">
                                   {detailVi}
                                 </div>
                               )}
                             </>
                           ) : (
                             <>
-                              <div className="font-semibold text-slate-200 space-y-1">
+                              <div className="font-semibold text-text-primary space-y-1">
                                 <div className="flex items-center gap-1.5">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-sky-400"></span>
+                                  <span className="w-1.5 h-1.5 rounded-full bg-primary-500"></span>
                                   <span>{titleVi}</span>
                                 </div>
                                 {dec.title_ja && dec.title_ja !== titleVi && (
-                                  <div className="text-[11px] text-emerald-400 font-normal pl-3">
+                                  <div className="text-[11px] text-emerald-600 dark:text-emerald-400 font-normal pl-3">
                                     【{dec.title_ja}】
                                   </div>
                                 )}
                               </div>
                               {detailVi && (
-                                <div className="text-[11px] text-slate-300 pl-3 leading-relaxed">
+                                <div className="text-[11px] text-text-secondary pl-3 leading-relaxed">
                                   {detailVi}
                                 </div>
                               )}
                               {detailJa && detailJa !== detailVi && (
-                                <div className="text-[11px] text-slate-400 pl-3 leading-relaxed italic border-l border-emerald-500/30 my-1 ml-3">
+                                <div className="text-[11px] text-text-muted pl-3 leading-relaxed italic border-l border-emerald-500/30 my-1 ml-3">
                                   {detailJa}
                                 </div>
                               )}
@@ -1865,7 +1864,7 @@ export const MeetingsPage: React.FC<MeetingsPageProps> = ({
                           )}
 
                           {dec.evidence && (
-                            <div className="text-[11px] text-slate-400 bg-slate-900/60 p-2 rounded border-l-2 border-sky-500/50 italic">
+                            <div className="text-[11px] text-text-muted bg-surface-elevated p-2 rounded-lg border-l-2 border-primary-500 italic">
                               "{dec.evidence}"
                             </div>
                           )}
@@ -1879,7 +1878,7 @@ export const MeetingsPage: React.FC<MeetingsPageProps> = ({
               {/* Open Questions List */}
               {currentResult.open_questions?.length > 0 && (
                 <div className="space-y-2">
-                  <div className="text-[11px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <div className="text-[11px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
                     <HelpCircle className="w-3.5 h-3.5" /> 
                     {languageView === 'ja' ? '保留・確認事項（Open Questions）' : 'Vấn đề tồn đọng & Cần xác nhận (Open Questions)'} ({currentResult.open_questions.length})
                   </div>
@@ -1888,23 +1887,23 @@ export const MeetingsPage: React.FC<MeetingsPageProps> = ({
                       const qVi = q.question_vi || q.question || q.question_ja || '';
                       const qJa = q.question_ja || q.question || q.question_vi || '';
                       return (
-                        <div key={i} className="p-2.5 rounded-lg bg-slate-950/90 border border-slate-800 flex items-start justify-between gap-3">
+                        <div key={i} className="p-3 rounded-xl bg-canvas border border-border-subtle flex items-start justify-between gap-3">
                           <div className="space-y-1 flex-1">
-                            <div className="font-medium text-slate-200">
+                            <div className="font-medium text-text-primary">
                               {languageView === 'ja' ? qJa : languageView === 'vi' ? qVi : (
                                 <div className="space-y-1">
                                   <div>{qVi}</div>
                                   {q.question_ja && q.question_ja !== qVi && (
-                                    <div className="text-[11px] text-slate-400">↳ 🇯🇵 {q.question_ja}</div>
+                                    <div className="text-[11px] text-text-muted">↳ 🇯🇵 {q.question_ja}</div>
                                   )}
                                 </div>
                               )}
                             </div>
-                            <div className="text-[11px] text-slate-400">
-                              Bên phụ trách trả lời: <span className="text-amber-300 font-medium">{q.owner || 'Client'}</span>
+                            <div className="text-[11px] text-text-muted">
+                              Bên phụ trách trả lời: <span className="text-amber-600 dark:text-amber-400 font-medium">{q.owner || 'Client'}</span>
                             </div>
                           </div>
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 uppercase flex-shrink-0">
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 uppercase shrink-0">
                             {q.urgency || 'HIGH'}
                           </span>
                         </div>
@@ -1915,56 +1914,58 @@ export const MeetingsPage: React.FC<MeetingsPageProps> = ({
               )}
             </div>
           ) : (
-            <div className="p-16 text-center text-slate-500 text-xs my-auto">
-              <FileText className="w-10 h-10 mx-auto mb-3 text-slate-700" />
-              <div className="text-slate-400 font-medium mb-1">Chưa có kết quả biên bản cuộc họp</div>
-              <p className="max-w-xs mx-auto text-slate-500">
-                Chọn mẫu hoặc dán biên bản/hội thoại cuộc họp ở cột bên trái và bấm <strong className="text-emerald-400">"Generate Executive Minutes"</strong> để xem phân tích.
+            <div className="p-16 text-center text-text-muted text-xs my-auto">
+              <FileText className="w-10 h-10 mx-auto mb-3 text-text-muted opacity-40" />
+              <div className="text-text-primary font-medium mb-1">Chưa có kết quả biên bản cuộc họp</div>
+              <p className="max-w-xs mx-auto text-text-muted">
+                Chọn mẫu hoặc dán biên bản/hội thoại cuộc họp ở cột bên trái và bấm <strong className="text-emerald-500">"Generate Executive Minutes"</strong> để xem phân tích.
               </p>
             </div>
           )}
+          </Card>
         </div>
       </div>
 
       {/* Bottom Section: Meeting Brain Q&A + Past Meetings History */}
       <div className="space-y-4">
         {/* Pillar 4: Meeting Brain Cross-Meeting Q&A Chat */}
-        <div className="p-4 rounded-xl bg-slate-900/80 border border-emerald-500/30 shadow-sm space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+        <Card className="p-5 border-emerald-500/30 space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border-subtle pb-2.5">
             <div className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+              <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
                 <Bot className="w-4 h-4" />
               </div>
               <div>
-                <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                <h3 className="text-xs font-bold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
                   Meeting Brain Q&A
-                  <span className="text-[10px] font-normal px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 lowercase flex items-center gap-1">
+                  <span className="text-[10px] font-normal px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 lowercase flex items-center gap-1">
                     <MessageSquare className="w-2.5 h-2.5" /> hội thoại đa lượt
                   </span>
                 </h3>
-                <p className="text-[11px] text-slate-400">
+                <p className="text-[11px] text-text-muted">
                   Hỏi đáp trực tiếp và trò chuyện nối tiếp trên toàn bộ lịch sử các cuộc họp dự án.
                 </p>
               </div>
             </div>
 
             {brainChatMessages.length > 0 && (
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={handleClearBrainChat}
-                className="flex items-center gap-1 text-[11px] text-slate-300 hover:text-white px-2.5 py-1 rounded bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 transition cursor-pointer self-start sm:self-auto"
-                title="Xóa lịch sử và bắt đầu hội thoại mới"
+                leftIcon={<RotateCcw className="w-3 h-3 text-text-muted" />}
+                className="text-[11px]"
               >
-                <RotateCcw className="w-3 h-3 text-slate-400" />
-                <span>Đoạn chat mới</span>
-              </button>
+                Đoạn chat mới
+              </Button>
             )}
           </div>
 
           {/* Quick Prompt Suggestion Chips (when no messages) */}
           {brainChatMessages.length === 0 && (
             <div className="space-y-1.5 py-1">
-              <div className="text-[11px] text-slate-400 flex items-center gap-1">
-                <Sparkles className="w-3 h-3 text-emerald-400" /> Gợi ý câu hỏi nhanh:
+              <div className="text-[11px] text-text-muted flex items-center gap-1">
+                <Sparkles className="w-3 h-3 text-emerald-500" /> Gợi ý câu hỏi nhanh:
               </div>
               <div className="flex flex-wrap gap-1.5">
                 {[
@@ -1978,7 +1979,7 @@ export const MeetingsPage: React.FC<MeetingsPageProps> = ({
                     type="button"
                     onClick={() => handleAskBrain(chip)}
                     disabled={askingBrain}
-                    className="text-[11px] px-2.5 py-1 rounded-full bg-slate-950 border border-slate-800 hover:border-emerald-500/40 text-slate-300 hover:text-emerald-300 transition cursor-pointer flex items-center gap-1"
+                    className="text-[11px] px-2.5 py-1 rounded-full bg-canvas border border-border-subtle hover:border-emerald-500/40 text-text-secondary hover:text-emerald-600 dark:hover:text-emerald-400 transition cursor-pointer flex items-center gap-1"
                   >
                     <span>💡</span>
                     <span>{chip}</span>
@@ -1995,29 +1996,29 @@ export const MeetingsPage: React.FC<MeetingsPageProps> = ({
                 <div key={msg.id} className="space-y-1.5">
                   {msg.role === 'user' ? (
                     <div className="flex justify-end">
-                      <div className="bg-emerald-950/50 border border-emerald-600/40 text-emerald-100 px-3.5 py-2 rounded-2xl rounded-tr-xs text-xs max-w-[85%] shadow-xs leading-relaxed">
+                      <div className="bg-emerald-600 text-white px-3.5 py-2 rounded-2xl rounded-tr-xs text-xs max-w-[85%] shadow-xs leading-relaxed">
                         {msg.text}
                       </div>
                     </div>
                   ) : (
                     <div className="flex items-start gap-2.5 max-w-[96%]">
-                      <div className="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0 mt-0.5">
+                      <div className="w-6 h-6 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
                         <Bot className="w-3.5 h-3.5" />
                       </div>
-                      <div className="flex-1 bg-slate-950/90 border border-slate-800/90 p-3.5 rounded-2xl rounded-tl-xs space-y-2.5 shadow-xs">
-                        <div className="flex items-center justify-between text-[11px] border-b border-slate-800/80 pb-1.5">
-                          <span className="font-semibold text-emerald-400 flex items-center gap-1">
+                      <div className="flex-1 bg-canvas border border-border-subtle p-3.5 rounded-2xl rounded-tl-xs space-y-2.5 shadow-xs">
+                        <div className="flex items-center justify-between text-[11px] border-b border-border-subtle pb-1.5">
+                          <span className="font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                             <Sparkles className="w-3 h-3" /> Meeting Brain
                           </span>
                           <button
                             onClick={() => handleCopyBrainAnswer(msg.id, msg.text)}
-                            className="flex items-center gap-1 text-[10.5px] text-slate-400 hover:text-slate-200 px-1.5 py-0.5 rounded hover:bg-slate-800 transition cursor-pointer"
+                            className="flex items-center gap-1 text-[10.5px] text-text-muted hover:text-text-primary px-1.5 py-0.5 rounded hover:bg-surface-elevated transition cursor-pointer"
                             title="Copy câu trả lời này"
                           >
                             {copiedBrainMsgId === msg.id ? (
                               <>
-                                <Check className="w-3 h-3 text-emerald-400" />
-                                <span className="text-emerald-400">Đã copy</span>
+                                <Check className="w-3 h-3 text-emerald-500" />
+                                <span className="text-emerald-500">Đã copy</span>
                               </>
                             ) : (
                               <>
@@ -2035,8 +2036,8 @@ export const MeetingsPage: React.FC<MeetingsPageProps> = ({
 
                         {/* Evolution Notes */}
                         {msg.evolution_notes && msg.evolution_notes.length > 0 && (
-                          <div className="p-2.5 rounded bg-amber-500/10 border border-amber-500/30 text-xs space-y-1 text-amber-200">
-                            <div className="font-bold text-[10.5px] text-amber-300 uppercase tracking-wider flex items-center gap-1">
+                          <div className="p-2.5 rounded bg-amber-500/10 border border-amber-500/30 text-xs space-y-1 text-amber-700 dark:text-amber-200">
+                            <div className="font-bold text-[10.5px] text-amber-600 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1">
                               <History className="w-3 h-3" /> Tiến trình thay đổi quyết định qua các tuần:
                             </div>
                             <ul className="list-disc list-inside space-y-0.5 text-[11px] pl-1">
@@ -2049,8 +2050,8 @@ export const MeetingsPage: React.FC<MeetingsPageProps> = ({
 
                         {/* Citations Pills */}
                         {msg.citations && msg.citations.length > 0 && (
-                          <div className="space-y-1 pt-1 border-t border-slate-900">
-                            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                          <div className="space-y-1 pt-1 border-t border-border-subtle">
+                            <div className="text-[10px] font-bold text-text-muted uppercase tracking-wider">
                               Căn cứ từ các cuộc họp (Bấm để mở):
                             </div>
                             <div className="flex flex-wrap gap-1.5">
@@ -2066,13 +2067,13 @@ export const MeetingsPage: React.FC<MeetingsPageProps> = ({
                                         toast.info(`Đã nạp biên bản "${matchedMeeting.title}" lên bảng xem.`);
                                       }
                                     }}
-                                    className="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 text-emerald-300 border border-emerald-500/30 text-[10.5px] flex items-center gap-1 transition cursor-pointer"
+                                    className="px-2 py-0.5 rounded bg-surface hover:bg-surface-elevated text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-[10.5px] flex items-center gap-1 transition cursor-pointer"
                                     title={c.quote_or_reason || 'Bấm để mở cuộc họp này'}
                                   >
-                                    <Calendar className="w-3 h-3 text-slate-400" />
+                                    <Calendar className="w-3 h-3 text-text-muted" />
                                     <span className="font-semibold">{c.title || 'Cuộc họp'}</span>
-                                    <span className="text-[9.5px] text-slate-400">({c.meeting_date || 'Gần đây'})</span>
-                                    <ExternalLink className="w-2.5 h-2.5 text-slate-500" />
+                                    <span className="text-[9.5px] text-text-muted">({c.meeting_date || 'Gần đây'})</span>
+                                    <ExternalLink className="w-2.5 h-2.5 text-text-muted" />
                                   </button>
                                 );
                               })}
@@ -2086,8 +2087,8 @@ export const MeetingsPage: React.FC<MeetingsPageProps> = ({
               ))}
 
               {askingBrain && (
-                <div className="flex items-center gap-2 text-xs text-emerald-400/90 pl-1 py-1 animate-pulse">
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                <div className="flex items-center gap-2 text-xs text-emerald-500 pl-1 py-1 animate-pulse">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                   <span>Meeting Brain đang tổng hợp lịch sử các cuộc họp...</span>
                 </div>
               )}
@@ -2098,7 +2099,7 @@ export const MeetingsPage: React.FC<MeetingsPageProps> = ({
           {/* Input Bar */}
           <div className="flex flex-col sm:flex-row gap-2 pt-1">
             <div className="relative flex-1">
-              <MessageSquare className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+              <MessageSquare className="w-3.5 h-3.5 text-text-muted absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={brainQuery}
@@ -2107,29 +2108,21 @@ export const MeetingsPage: React.FC<MeetingsPageProps> = ({
                   if (e.key === 'Enter') handleAskBrain();
                 }}
                 placeholder={brainChatMessages.length > 0 ? "Hỏi tiếp nối hoặc nhập câu hỏi mới..." : "Ví dụ: 'Kiến trúc xác thực Auth chốt phương án nào?', 'Ai phụ trách fix bug hiệu năng?'..."}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition"
+                className="w-full bg-canvas border border-border-subtle rounded-xl pl-8 pr-3 py-2 text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-emerald-500 transition"
               />
             </div>
-            <button
+            <Button
+              variant="primary"
               onClick={() => handleAskBrain()}
               disabled={askingBrain || !brainQuery.trim()}
-              className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs whitespace-nowrap"
+              isLoading={askingBrain}
+              leftIcon={<Send className="w-3.5 h-3.5" />}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white"
             >
-              {askingBrain ? (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  <span>Đang tra cứu...</span>
-                </>
-              ) : (
-                <>
-                  <Send className="w-3.5 h-3.5" />
-                  <span>Gửi câu hỏi</span>
-                </>
-              )}
-            </button>
+              Gửi câu hỏi
+            </Button>
           </div>
-        </div>
-
+        </Card>
 
         {/* Past Meetings History Cards */}
         {meetings.length > 0 && (() => {
@@ -2146,34 +2139,34 @@ export const MeetingsPage: React.FC<MeetingsPageProps> = ({
           });
 
           return (
-            <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 space-y-3">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+            <Card className="p-5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border-subtle pb-3">
                 <div className="flex items-center gap-2">
-                  <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                    <History className="w-4 h-4 text-emerald-400" /> Lịch sử các cuộc họp đã phân tích ({meetings.length})
+                  <h3 className="text-xs font-bold text-text-secondary uppercase tracking-wider flex items-center gap-2">
+                    <History className="w-4 h-4 text-emerald-500" /> Lịch sử các cuộc họp đã phân tích ({meetings.length})
                   </h3>
                   {historySearchQuery.trim() && (
-                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    <Badge variant="success" size="sm">
                       Khớp {filteredMeetings.length} / {meetings.length}
-                    </span>
+                    </Badge>
                   )}
                 </div>
 
                 <div className="flex items-center gap-2">
                   {/* Real-time Keyword Search Bar */}
                   <div className="relative">
-                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                    <Search className="w-3.5 h-3.5 text-text-muted absolute left-2.5 top-1/2 -translate-y-1/2" />
                     <input
                       type="text"
                       value={historySearchQuery}
                       onChange={(e) => setHistorySearchQuery(e.target.value)}
                       placeholder="Lọc theo từ khóa, ngày..."
-                      className="w-48 sm:w-60 bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-7 py-1 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition"
+                      className="w-48 sm:w-60 bg-canvas border border-border-subtle rounded-lg pl-8 pr-7 py-1 text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-emerald-500 transition"
                     />
                     {historySearchQuery && (
                       <button
                         onClick={() => setHistorySearchQuery('')}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 p-0.5"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-0.5 cursor-pointer"
                         title="Xóa tìm kiếm"
                       >
                         <X className="w-3 h-3" />
@@ -2181,28 +2174,33 @@ export const MeetingsPage: React.FC<MeetingsPageProps> = ({
                     )}
                   </div>
 
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={loadMeetings}
-                    className="text-[11px] text-slate-400 hover:text-slate-200 flex items-center gap-1 transition cursor-pointer px-2 py-1 rounded hover:bg-slate-800"
+                    leftIcon={<RefreshCw className="w-3 h-3" />}
+                    className="text-xs"
                   >
-                    <RefreshCw className="w-3 h-3" /> Làm mới
-                  </button>
+                    Làm mới
+                  </Button>
 
                   {meetings.length > 0 && (
-                    <button
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={handleClearAllMeetings}
-                      className="text-[11px] text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 hover:border-rose-500/30 flex items-center gap-1 transition cursor-pointer px-2.5 py-1 rounded-lg shadow-xs"
-                      title="Xóa toàn bộ lịch sử các cuộc họp"
+                      leftIcon={<Trash2 className="w-3 h-3 text-rose-500" />}
+                      className="text-xs text-rose-500 border-rose-500/30 hover:bg-rose-500/10"
                     >
-                      <Trash2 className="w-3 h-3" /> Xóa tất cả
-                    </button>
+                      Xóa tất cả
+                    </Button>
                   )}
                 </div>
               </div>
 
               {filteredMeetings.length === 0 ? (
-                <div className="p-6 text-center text-slate-400 text-xs bg-slate-950/40 rounded-lg border border-slate-800/50">
-                  Không tìm thấy cuộc họp nào khớp với từ khóa "<span className="text-emerald-400 font-semibold">{historySearchQuery}</span>".
+                <div className="p-6 text-center text-text-muted text-xs bg-canvas rounded-lg border border-dashed border-border-subtle">
+                  Không tìm thấy cuộc họp nào khớp với từ khóa "<span className="text-emerald-500 font-semibold">{historySearchQuery}</span>".
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -2210,103 +2208,84 @@ export const MeetingsPage: React.FC<MeetingsPageProps> = ({
                     <div
                       key={m.id}
                       onClick={() => setCurrentResult(m)}
-                      className="p-3 rounded-lg bg-slate-950/80 border border-slate-800/80 hover:border-emerald-500/40 cursor-pointer transition space-y-1.5 group relative shadow-xs"
+                      className="p-3.5 rounded-xl bg-canvas border border-border-subtle hover:border-emerald-500/40 cursor-pointer transition space-y-2 group relative shadow-xs"
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <div className="font-semibold text-slate-200 text-xs group-hover:text-emerald-300 transition line-clamp-1 pr-6">
+                        <div className="font-semibold text-text-primary text-xs group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition line-clamp-1 pr-6">
                           {m.title}
                         </div>
-                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <div className="flex items-center gap-1.5 shrink-0">
                           <button
                             onClick={(e) => handleDeleteMeeting(e, m.id, m.title)}
-                            className="text-slate-600 hover:text-rose-400 p-1 rounded hover:bg-slate-900 transition"
+                            className="text-text-muted hover:text-rose-500 p-1 rounded hover:bg-surface-elevated transition cursor-pointer"
                             title="Xóa biên bản này"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
-                          <ArrowRight className="w-3.5 h-3.5 text-slate-600 group-hover:text-emerald-400 transition" />
+                          <ArrowRight className="w-3.5 h-3.5 text-text-muted group-hover:text-emerald-500 transition" />
                         </div>
                       </div>
-                      <div className="flex items-center justify-between text-[11px] text-slate-400">
-                        <span className="flex items-center gap-1 font-mono text-slate-400">
-                          <Calendar className="w-3 h-3 text-slate-500" /> {m.meeting_date}
+                      <div className="flex items-center justify-between text-[11px] text-text-muted">
+                        <span className="flex items-center gap-1 font-mono">
+                          <Calendar className="w-3 h-3" /> {m.meeting_date}
                         </span>
-                        <span className="text-emerald-400/90 font-medium">
+                        <Badge variant="success" size="sm">
                           {m.action_items?.length || 0} TODOs
-                        </span>
+                        </Badge>
                       </div>
                     </div>
                   ))}
                 </div>
               )}
-            </div>
+            </Card>
           );
         })()}
       </div>
 
       {/* Japanese Business Email Modal */}
-      {showEmailModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden animate-fadeIn">
-            {/* Modal Header */}
-            <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/50">
-              <div className="flex items-center gap-2">
-                <div className="p-1 rounded bg-indigo-500/20 text-indigo-400 border border-indigo-500/30">
-                  <Mail className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white">Mẫu Email gửi khách hàng tiếng Nhật (Keigo)</h3>
-                  <p className="text-[11px] text-slate-400">Mẫu email thương mại chuẩn mực gửi khách hàng/đối tác Nhật Bản</p>
-                </div>
-              </div>
-              <button
+      <Modal
+        isOpen={showEmailModal}
+        onClose={() => setShowEmailModal(false)}
+        title="Mẫu Email gửi khách hàng tiếng Nhật (Keigo)"
+        description="Mẫu email thương mại chuẩn mực gửi khách hàng/đối tác Nhật Bản"
+        size="lg"
+        footer={
+          <div className="flex items-center justify-between w-full">
+            <span className="text-[11px] text-text-muted">
+              1-click để copy và dán vào Outlook / Gmail
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
                 onClick={() => setShowEmailModal(false)}
-                className="text-slate-400 hover:text-white p-1 rounded hover:bg-slate-800 transition"
               >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <div className="p-4 flex-1 overflow-y-auto space-y-3">
-              <div className="text-[11px] text-slate-400 flex items-center justify-between">
-                <span>Nội dung email xem trước (Có thể chỉnh sửa trực tiếp trước khi copy):</span>
-                <span className="font-mono text-indigo-300">Format: 敬語 (Keigo)</span>
-              </div>
-              <textarea
-                value={emailContent}
-                onChange={(e) => setEmailContent(e.target.value)}
-                rows={16}
-                className="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs text-slate-200 font-mono resize-none focus:outline-none focus:border-indigo-500 leading-relaxed"
-              />
-            </div>
-
-            {/* Modal Footer */}
-            <div className="p-3 border-t border-slate-800 flex items-center justify-between bg-slate-950/50">
-              <span className="text-[11px] text-slate-400">
-                1-click để copy và dán vào Outlook / Gmail
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowEmailModal(false)}
-                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition font-medium"
-                >
-                  Đóng
-                </button>
-                <button
-                  type="button"
-                  onClick={handleCopyEmail}
-                  className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 transition shadow cursor-pointer"
-                >
-                  {copiedEmail ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedEmail ? 'Đã copy Email!' : 'Sao chép Email'}</span>
-                </button>
-              </div>
+                Đóng
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleCopyEmail}
+                leftIcon={copiedEmail ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white"
+              >
+                {copiedEmail ? 'Đã copy Email!' : 'Sao chép Email'}
+              </Button>
             </div>
           </div>
+        }
+      >
+        <div className="space-y-3">
+          <div className="text-[11px] text-text-muted flex items-center justify-between">
+            <span>Nội dung email xem trước (Có thể chỉnh sửa trực tiếp trước khi copy):</span>
+            <span className="font-mono text-indigo-500 font-medium">Format: 敬語 (Keigo)</span>
+          </div>
+          <textarea
+            value={emailContent}
+            onChange={(e) => setEmailContent(e.target.value)}
+            rows={14}
+            className="w-full bg-canvas border border-border-subtle rounded-xl p-3 text-xs text-text-primary font-mono resize-none focus:outline-none focus:border-indigo-500 leading-relaxed"
+          />
         </div>
-      )}
+      </Modal>
     </div>
   );
 };

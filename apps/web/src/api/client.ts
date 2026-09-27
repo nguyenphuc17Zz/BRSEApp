@@ -7,7 +7,6 @@ import {
   TranslationMemoryItem,
   HistoryItem,
   ProviderInfo,
-  DashboardData,
   ProjectStakeholder,
   StakeholderCreatePayload,
   LineMessageItem
@@ -91,12 +90,6 @@ export const apiClient = {
       preferred_provider,
       force_model
     });
-    return res.data;
-  },
-
-  // Dashboard
-  getDashboardStats: async (project_id?: string): Promise<DashboardData> => {
-    const res = await api.get('/dashboard/stats', { params: { project_id } });
     return res.data;
   },
 
@@ -229,7 +222,7 @@ export const apiClient = {
     return res.data;
   },
 
-  // Document Translation (Phase 2)
+  // Document Translation
   uploadDocument: async (file: File, projectId?: string): Promise<any> => {
     const formData = new FormData();
     formData.append('file', file);
@@ -352,7 +345,7 @@ export const apiClient = {
     return `${API_BASE_URL}/documents/jobs/${jobId}/output`;
   },
 
-  // Phase 3: Workspace & Communication Integrations
+  // Workspace & Communication Integrations
   getIntegrationHealth: async (): Promise<any> => {
     const res = await api.get('/integrations/health');
     return res.data;
@@ -680,7 +673,7 @@ export const apiClient = {
     return res.data;
   },
 
-  // Phase 4 — BrSE Brain & Smart Workflow APIs
+  // BrSE Brain & Smart Workflow APIs
   getBrSEMetrics: async (project_id?: string): Promise<any> => {
     const res = await api.get('/brse-dashboard/metrics', { params: { project_id } });
     return res.data;
@@ -893,6 +886,797 @@ export const apiClient = {
     const res = await api.post('/intelligence/stakeholders/clean-mock', null, {
       params: projectId ? { project_id: projectId } : undefined
     });
+    return res.data;
+  },
+
+  // QA Workspace Phase 1
+  qaReviewRequirement: async (requirementId: string, opts?: { preferred_provider?: string; model?: string; force?: boolean }): Promise<any[]> => {
+    const res = await api.post(`/qa/requirements/${requirementId}/review`, {
+      preferred_provider: opts?.preferred_provider,
+      model: opts?.model,
+      force: opts?.force ?? false,
+    });
+    return res.data;
+  },
+
+  qaGetDetail: async (requirementId: string): Promise<any> => {
+    const res = await api.get(`/qa/requirements/${requirementId}/detail`);
+    return res.data;
+  },
+
+  qaListRequirements: async (projectId: string, params?: { status?: string; coverage?: string }): Promise<any[]> => {
+    const res = await api.get(`/qa/projects/${projectId}/requirements`, { params });
+    return res.data;
+  },
+
+  qaUpdateFinding: async (findingId: string, status: string): Promise<any> => {
+    const res = await api.patch(`/qa/findings/${findingId}`, { status });
+    return res.data;
+  },
+
+  qaGenerateQuestions: async (requirementId: string, opts?: { finding_ids?: string[]; preferred_provider?: string; model?: string }): Promise<any[]> => {
+    const res = await api.post(`/qa/requirements/${requirementId}/questions:generate`, {
+      finding_ids: opts?.finding_ids,
+      preferred_provider: opts?.preferred_provider,
+      model: opts?.model,
+    });
+    return res.data;
+  },
+
+  qaUpdateQuestion: async (questionId: string, data: any): Promise<any> => {
+    const res = await api.patch(`/qa/questions/${questionId}`, data);
+    return res.data;
+  },
+
+  qaGenerateAC: async (requirementId: string, opts?: { preferred_provider?: string; model?: string }): Promise<any[]> => {
+    const res = await api.post(`/qa/requirements/${requirementId}/acceptance-criteria:generate`, {
+      preferred_provider: opts?.preferred_provider,
+      model: opts?.model,
+    });
+    return res.data;
+  },
+
+  qaCreateAC: async (requirementId: string, data: { given_text: string; when_text: string; then_text: string; evidence_quote?: string }): Promise<any> => {
+    const res = await api.post(`/qa/requirements/${requirementId}/acceptance-criteria`, data);
+    return res.data;
+  },
+
+  qaUpdateAC: async (acId: string, data: any): Promise<any> => {
+    const res = await api.patch(`/qa/acceptance-criteria/${acId}`, data);
+    return res.data;
+  },
+
+  qaDeleteAC: async (acId: string): Promise<any> => {
+    const res = await api.delete(`/qa/acceptance-criteria/${acId}`);
+    return res.data;
+  },
+
+  qaGenerateTestCases: async (requirementId: string, opts?: { acceptance_criterion_ids?: string[]; checklist_mode?: boolean; preferred_provider?: string; model?: string }): Promise<any[]> => {
+    const res = await api.post(`/qa/requirements/${requirementId}/test-cases:generate`, {
+      acceptance_criterion_ids: opts?.acceptance_criterion_ids,
+      checklist_mode: opts?.checklist_mode ?? false,
+      preferred_provider: opts?.preferred_provider,
+      model: opts?.model,
+    });
+    return res.data;
+  },
+
+  qaCreateTestCase: async (requirementId: string, data: any): Promise<any> => {
+    const res = await api.post(`/qa/requirements/${requirementId}/test-cases`, data);
+    return res.data;
+  },
+
+  qaListTestCases: async (params?: any): Promise<any[]> => {
+    const res = await api.get('/qa/test-cases', { params });
+    return res.data;
+  },
+
+  qaGetTestCase: async (caseId: string): Promise<any> => {
+    const res = await api.get(`/qa/test-cases/${caseId}`);
+    return res.data;
+  },
+
+  qaUpdateTestCase: async (caseId: string, data: any): Promise<any> => {
+    const res = await api.patch(`/qa/test-cases/${caseId}`, data);
+    return res.data;
+  },
+
+  qaDuplicateTestCase: async (caseId: string): Promise<any> => {
+    const res = await api.post(`/qa/test-cases/${caseId}/duplicate`);
+    return res.data;
+  },
+
+  qaDeleteTestCase: async (caseId: string): Promise<any> => {
+    const res = await api.delete(`/qa/test-cases/${caseId}`);
+    return res.data;
+  },
+
+  qaGetCoverage: async (projectId: string): Promise<any[]> => {
+    const res = await api.get(`/qa/projects/${projectId}/coverage`);
+    return res.data;
+  },
+
+  qaGetOverview: async (projectId: string): Promise<any> => {
+    const res = await api.get(`/qa/projects/${projectId}/overview`);
+    return res.data;
+  },
+
+  // QA Workspace Phase 2 — Test Runs & Execution
+  qaCreateTestRun: async (projectId: string, data: any): Promise<any> => {
+    const res = await api.post('/qa/test-runs', data, { params: { project_id: projectId } });
+    return res.data;
+  },
+
+  qaListTestRuns: async (params?: any): Promise<any[]> => {
+    const res = await api.get('/qa/test-runs', { params });
+    return res.data;
+  },
+
+  qaGetTestRun: async (runId: string): Promise<any> => {
+    const res = await api.get(`/qa/test-runs/${runId}`);
+    return res.data;
+  },
+
+  qaUpdateTestRun: async (runId: string, data: any): Promise<any> => {
+    const res = await api.patch(`/qa/test-runs/${runId}`, data);
+    return res.data;
+  },
+
+  qaAddRunCases: async (runId: string, scope: any): Promise<any> => {
+    const res = await api.post(`/qa/test-runs/${runId}/cases`, { scope });
+    return res.data;
+  },
+
+  qaNextExecution: async (runId: string, after?: string): Promise<any> => {
+    const res = await api.get(`/qa/test-runs/${runId}/next`, { params: after ? { after } : {} });
+    return res.data;
+  },
+
+  qaGetExecution: async (executionId: string): Promise<any> => {
+    const res = await api.get(`/qa/executions/${executionId}`);
+    return res.data;
+  },
+
+  qaStartExecution: async (executionId: string, tester?: string): Promise<any> => {
+    const res = await api.post(`/qa/executions/${executionId}/start`, null, { params: tester ? { tester } : {} });
+    return res.data;
+  },
+
+  qaSaveResult: async (executionId: string, data: any): Promise<any> => {
+    const res = await api.post(`/qa/executions/${executionId}/result`, data);
+    return res.data;
+  },
+
+  qaRewriteActual: async (executionId: string, data: any): Promise<{ rewritten: string }> => {
+    const res = await api.post(`/qa/executions/${executionId}/rewrite-actual`, data);
+    return res.data;
+  },
+
+  qaAddEvidence: async (executionId: string, data: any): Promise<any> => {
+    const res = await api.post(`/qa/executions/${executionId}/evidence`, data);
+    return res.data;
+  },
+
+  qaUploadEvidence: async (executionId: string, file: File, opts?: { title?: string; evidence_type?: string; changed_by?: string }): Promise<any> => {
+    const form = new FormData();
+    form.append('file', file);
+    if (opts?.title) form.append('title', opts.title);
+    form.append('evidence_type', opts?.evidence_type || 'screenshot');
+    form.append('changed_by', opts?.changed_by || 'user');
+    const res = await api.post(`/qa/executions/${executionId}/evidence/upload`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return res.data;
+  },
+
+  qaEvidenceFileUrl: (evidenceId: string): string => {
+    return `http://127.0.0.1:8000/api/qa/evidence/${evidenceId}/file`;
+  },
+
+  qaDraftBug: async (executionId: string, opts?: any): Promise<any> => {
+    const res = await api.post(`/qa/executions/${executionId}/bug:draft`, opts || {});
+    return res.data;
+  },
+
+  qaCreateBug: async (executionId: string, data: any): Promise<any> => {
+    const res = await api.post(`/qa/executions/${executionId}/bug`, data);
+    return res.data;
+  },
+
+  qaRetest: async (executionId: string): Promise<any> => {
+    const res = await api.post(`/qa/executions/${executionId}/retest`, {});
+    return res.data;
+  },
+
+  qaListBugs: async (params?: any): Promise<any[]> => {
+    const res = await api.get('/qa/bugs', { params });
+    return res.data;
+  },
+
+  qaGetBug: async (bugId: string): Promise<any> => {
+    const res = await api.get(`/qa/bugs/${bugId}`);
+    return res.data;
+  },
+
+  qaUpdateBug: async (bugId: string, data: any): Promise<any> => {
+    const res = await api.patch(`/qa/bugs/${bugId}`, data);
+    return res.data;
+  },
+
+  qaGenerateReport: async (runId: string, data: any): Promise<any> => {
+    const res = await api.post(`/qa/test-runs/${runId}/reports`, data);
+    return res.data;
+  },
+
+  qaListReports: async (runId: string): Promise<any[]> => {
+    const res = await api.get(`/qa/test-runs/${runId}/reports`);
+    return res.data;
+  },
+
+  qaApproveReport: async (reportId: string): Promise<any> => {
+    const res = await api.patch(`/qa/reports/${reportId}`, { status: 'APPROVED' });
+    return res.data;
+  },
+
+  qaExecutionCoverage: async (projectId: string): Promise<any[]> => {
+    const res = await api.get('/qa/execution-coverage', { params: { project_id: projectId } });
+    return res.data;
+  },
+
+  // QA Phase 3: API testing
+  qaImportOpenAPI: async (projectId: string, content: string): Promise<any> => {
+    const res = await api.post('/qa/openapi:import', { project_id: projectId, content });
+    return res.data;
+  },
+
+  qaListEndpoints: async (projectId: string, params?: any): Promise<any[]> => {
+    const res = await api.get('/qa/endpoints', { params: { project_id: projectId, ...(params || {}) } });
+    return res.data;
+  },
+
+  qaCreateEndpoint: async (projectId: string, data: any): Promise<any> => {
+    const res = await api.post('/qa/endpoints', data, { params: { project_id: projectId } });
+    return res.data;
+  },
+
+  qaUpdateEndpoint: async (endpointId: string, data: any): Promise<any> => {
+    const res = await api.patch(`/qa/endpoints/${endpointId}`, data);
+    return res.data;
+  },
+
+  qaDeleteEndpoint: async (endpointId: string): Promise<any> => {
+    const res = await api.delete(`/qa/endpoints/${endpointId}`);
+    return res.data;
+  },
+
+  qaListEnvs: async (projectId: string): Promise<any[]> => {
+    const res = await api.get('/qa/environments', { params: { project_id: projectId } });
+    return res.data;
+  },
+
+  qaCreateEnv: async (projectId: string, data: any): Promise<any> => {
+    const res = await api.post('/qa/environments', data, { params: { project_id: projectId } });
+    return res.data;
+  },
+
+  qaUpdateEnv: async (envId: string, data: any): Promise<any> => {
+    const res = await api.patch(`/qa/environments/${envId}`, data);
+    return res.data;
+  },
+
+  qaDeleteEnv: async (envId: string): Promise<any> => {
+    const res = await api.delete(`/qa/environments/${envId}`);
+    return res.data;
+  },
+
+  qaSetEnvSecret: async (envId: string, key: string, value: string): Promise<any> => {
+    const res = await api.post(`/qa/environments/${envId}/secrets`, { key, value });
+    return res.data;
+  },
+
+  qaDeleteEnvSecret: async (envId: string, key: string): Promise<any> => {
+    const res = await api.delete(`/qa/environments/${envId}/secrets/${key}`);
+    return res.data;
+  },
+
+  qaGenerateApiTests: async (data: any): Promise<any[]> => {
+    const res = await api.post('/qa/api-tests:generate', data);
+    return res.data;
+  },
+
+  qaListApiTests: async (projectId: string, params?: any): Promise<any[]> => {
+    const res = await api.get('/qa/api-tests', { params: { project_id: projectId, ...(params || {}) } });
+    return res.data;
+  },
+
+  qaGetApiTest: async (caseId: string): Promise<any> => {
+    const res = await api.get(`/qa/api-tests/${caseId}`);
+    return res.data;
+  },
+
+  qaUpdateApiConfig: async (caseId: string, data: any): Promise<any> => {
+    const res = await api.patch(`/qa/api-tests/${caseId}/config`, data);
+    return res.data;
+  },
+
+  qaCreateAssertion: async (caseId: string, data: any): Promise<any> => {
+    const res = await api.post(`/qa/api-tests/${caseId}/assertions`, data);
+    return res.data;
+  },
+
+  qaUpdateAssertion: async (assertionId: string, data: any): Promise<any> => {
+    const res = await api.patch(`/qa/assertions/${assertionId}`, data);
+    return res.data;
+  },
+
+  qaDeleteAssertion: async (assertionId: string): Promise<any> => {
+    const res = await api.delete(`/qa/assertions/${assertionId}`);
+    return res.data;
+  },
+
+  qaSuggestAssertions: async (caseId: string, data?: any): Promise<any[]> => {
+    const res = await api.post(`/qa/api-tests/${caseId}/assertions:suggest`, data || {});
+    return res.data;
+  },
+
+  qaRunApiTest: async (caseId: string, data: any): Promise<any> => {
+    const res = await api.post(`/qa/api-tests/${caseId}/run`, data);
+    return res.data;
+  },
+
+  qaRunApiSuite: async (data: any): Promise<any> => {
+    const res = await api.post('/qa/api-suites:run', data);
+    return res.data;
+  },
+
+  qaAnalyzeFail: async (executionId: string, data?: any): Promise<any> => {
+    const res = await api.post(`/qa/executions/${executionId}/analyze-fail`, data || {});
+    return res.data;
+  },
+
+  qaDraftApiBug: async (executionId: string, data?: any): Promise<any> => {
+    const res = await api.post(`/qa/executions/${executionId}/api-bug:draft`, data || {});
+    return res.data;
+  },
+
+  qaListFlows: async (projectId: string): Promise<any[]> => {
+    const res = await api.get('/qa/flows', { params: { project_id: projectId } });
+    return res.data;
+  },
+
+  qaCreateFlow: async (data: any): Promise<any> => {
+    const res = await api.post('/qa/flows', data);
+    return res.data;
+  },
+
+  qaRunFlow: async (flowId: string, data: any): Promise<any> => {
+    const res = await api.post(`/qa/flows/${flowId}/run`, data);
+    return res.data;
+  },
+
+  qaApiCoverage: async (projectId: string): Promise<any[]> => {
+    const res = await api.get('/qa/coverage/api', { params: { project_id: projectId } });
+    return res.data;
+  },
+
+  qaPreviewTestData: async (kind: string): Promise<any> => {
+    const res = await api.get('/qa/test-data:preview', { params: { kind } });
+    return res.data;
+  },
+
+  // QA Phase 4: UI automation
+  qaGenerateUiScript: async (data: any): Promise<any> => {
+    const res = await api.post('/qa/ui-scripts:generate', data);
+    return res.data;
+  },
+
+  qaListUiScripts: async (projectId: string, params?: any): Promise<any[]> => {
+    const res = await api.get('/qa/ui-scripts', { params: { project_id: projectId, ...(params || {}) } });
+    return res.data;
+  },
+
+  qaGetUiScript: async (caseId: string): Promise<any> => {
+    const res = await api.get(`/qa/ui-scripts/${caseId}`);
+    return res.data;
+  },
+
+  qaUpdateUiScript: async (caseId: string, data: any): Promise<any> => {
+    const res = await api.patch(`/qa/ui-scripts/${caseId}`, data);
+    return res.data;
+  },
+
+  qaListUiMappings: async (projectId: string, params?: any): Promise<any[]> => {
+    const res = await api.get('/qa/ui-mappings', { params: { project_id: projectId, ...(params || {}) } });
+    return res.data;
+  },
+
+  qaCreateUiMapping: async (projectId: string, data: any): Promise<any> => {
+    const res = await api.post('/qa/ui-mappings', data, { params: { project_id: projectId } });
+    return res.data;
+  },
+
+  qaUpdateUiMapping: async (mappingId: string, data: any): Promise<any> => {
+    const res = await api.patch(`/qa/ui-mappings/${mappingId}`, data);
+    return res.data;
+  },
+
+  qaDeleteUiMapping: async (mappingId: string): Promise<any> => {
+    const res = await api.delete(`/qa/ui-mappings/${mappingId}`);
+    return res.data;
+  },
+
+  qaListUiPages: async (projectId: string): Promise<any[]> => {
+    const res = await api.get('/qa/ui-pages', { params: { project_id: projectId } });
+    return res.data;
+  },
+
+  qaCreateUiPage: async (projectId: string, data: any): Promise<any> => {
+    const res = await api.post('/qa/ui-pages', data, { params: { project_id: projectId } });
+    return res.data;
+  },
+
+  qaUpdateUiPage: async (pageId: string, data: any): Promise<any> => {
+    const res = await api.patch(`/qa/ui-pages/${pageId}`, data);
+    return res.data;
+  },
+
+  qaDeleteUiPage: async (pageId: string): Promise<any> => {
+    const res = await api.delete(`/qa/ui-pages/${pageId}`);
+    return res.data;
+  },
+
+  qaRunUiTest: async (caseId: string, data: any): Promise<any> => {
+    const res = await api.post(`/qa/ui-tests/${caseId}/run`, data);
+    return res.data;
+  },
+
+  qaUiStatus: async (executionId: string): Promise<any> => {
+    const res = await api.get(`/qa/executions/${executionId}/ui-status`);
+    return res.data;
+  },
+
+  qaUiCancel: async (executionId: string): Promise<any> => {
+    const res = await api.post(`/qa/executions/${executionId}/ui-cancel`);
+    return res.data;
+  },
+
+  qaRunUiSuite: async (data: any): Promise<any> => {
+    const res = await api.post('/qa/ui-suites:run', data);
+    return res.data;
+  },
+
+  qaAnalyzeUiFail: async (executionId: string, data?: any): Promise<any> => {
+    const res = await api.post(`/qa/executions/${executionId}/analyze-ui-fail`, data || {});
+    return res.data;
+  },
+
+  qaDraftUiBug: async (executionId: string, data?: any): Promise<any> => {
+    const res = await api.post(`/qa/executions/${executionId}/ui-bug:draft`, data || {});
+    return res.data;
+  },
+
+  qaUiCoverage: async (projectId: string): Promise<any[]> => {
+    const res = await api.get('/qa/coverage/ui', { params: { project_id: projectId } });
+    return res.data;
+  },
+
+  qaUiCandidates: async (projectId: string): Promise<any[]> => {
+    const res = await api.get('/qa/ui-candidates', { params: { project_id: projectId } });
+    return res.data;
+  },
+
+  qaUiOverview: async (projectId: string): Promise<any> => {
+    const res = await api.get('/qa/overview/ui', { params: { project_id: projectId } });
+    return res.data;
+  },
+
+  // QA Phase 5: Regression Intelligence
+  qaCreateChange: async (projectId: string, data: any): Promise<any> => {
+    const res = await api.post('/qa/changes', data, { params: { project_id: projectId } });
+    return res.data;
+  },
+
+  qaListChanges: async (projectId: string, params?: any): Promise<any[]> => {
+    const res = await api.get('/qa/changes', { params: { project_id: projectId, ...(params || {}) } });
+    return res.data;
+  },
+
+  qaSuggestChanges: async (projectId: string): Promise<any[]> => {
+    const res = await api.get('/qa/changes/suggest', { params: { project_id: projectId } });
+    return res.data;
+  },
+
+  qaGetChange: async (changeId: string): Promise<any> => {
+    const res = await api.get(`/qa/changes/${changeId}`);
+    return res.data;
+  },
+
+  qaAnalyzeChange: async (changeId: string, data?: any): Promise<any> => {
+    const res = await api.post(`/qa/changes/${changeId}/analyze`, data || {});
+    return res.data;
+  },
+
+  qaRequirementVersions: async (requirementId: string): Promise<any[]> => {
+    const res = await api.get(`/qa/requirements/${requirementId}/versions`);
+    return res.data;
+  },
+
+  qaSpecDiff: async (data: any): Promise<any> => {
+    const res = await api.post('/qa/specs:diff', data);
+    return res.data;
+  },
+
+  qaCreatePlan: async (projectId: string, data: any): Promise<any> => {
+    const res = await api.post('/qa/plans', data, { params: { project_id: projectId } });
+    return res.data;
+  },
+
+  qaListPlans: async (projectId: string, params?: any): Promise<any[]> => {
+    const res = await api.get('/qa/plans', { params: { project_id: projectId, ...(params || {}) } });
+    return res.data;
+  },
+
+  qaGetPlan: async (planId: string): Promise<any> => {
+    const res = await api.get(`/qa/plans/${planId}`);
+    return res.data;
+  },
+
+  qaUpdatePlan: async (planId: string, data: any): Promise<any> => {
+    const res = await api.patch(`/qa/plans/${planId}`, data);
+    return res.data;
+  },
+
+  qaAddPlanItem: async (planId: string, data: any): Promise<any> => {
+    const res = await api.post(`/qa/plans/${planId}/items`, data);
+    return res.data;
+  },
+
+  qaRemovePlanItem: async (itemId: string): Promise<any> => {
+    const res = await api.delete(`/qa/plans/items/${itemId}`);
+    return res.data;
+  },
+
+  qaRunPlan: async (planId: string, data: any): Promise<any> => {
+    const res = await api.post(`/qa/plans/${planId}/run`, data);
+    return res.data;
+  },
+
+  qaPlanSummary: async (planId: string): Promise<any> => {
+    const res = await api.get(`/qa/plans/${planId}/summary`);
+    return res.data;
+  },
+
+  qaChangeCoverage: async (params: any): Promise<any> => {
+    const res = await api.get('/qa/change-coverage', { params });
+    return res.data;
+  },
+
+  // QA Phase 6: Data QA
+  qaUploadDataSource: async (projectId: string, file: File, opts?: { name?: string; sheet?: string; kind?: string }): Promise<any> => {
+    const form = new FormData();
+    form.append('file', file);
+    if (opts?.name) form.append('name', opts.name);
+    if (opts?.sheet) form.append('sheet', opts.sheet);
+    form.append('kind', opts?.kind || 'file_csv');
+    const res = await api.post('/qa/data-sources/upload', form, {
+      params: { project_id: projectId },
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return res.data;
+  },
+
+  qaCreateDataSource: async (projectId: string, data: any): Promise<any> => {
+    const res = await api.post('/qa/data-sources', data, { params: { project_id: projectId } });
+    return res.data;
+  },
+
+  qaListDataSources: async (projectId: string): Promise<any[]> => {
+    const res = await api.get('/qa/data-sources', { params: { project_id: projectId } });
+    return res.data;
+  },
+
+  qaGetDataSource: async (sourceId: string): Promise<any> => {
+    const res = await api.get(`/qa/data-sources/${sourceId}`);
+    return res.data;
+  },
+
+  qaDeleteDataSource: async (sourceId: string): Promise<any> => {
+    const res = await api.delete(`/qa/data-sources/${sourceId}`);
+    return res.data;
+  },
+
+  qaCreateDataJob: async (projectId: string, data: any): Promise<any> => {
+    const res = await api.post('/qa/data-jobs', data, { params: { project_id: projectId } });
+    return res.data;
+  },
+
+  qaListDataJobs: async (projectId: string, params?: any): Promise<any[]> => {
+    const res = await api.get('/qa/data-jobs', { params: { project_id: projectId, ...(params || {}) } });
+    return res.data;
+  },
+
+  qaGetDataJob: async (jobId: string): Promise<any> => {
+    const res = await api.get(`/qa/data-jobs/${jobId}`);
+    return res.data;
+  },
+
+  qaUpdateDataJob: async (jobId: string, data: any): Promise<any> => {
+    const res = await api.patch(`/qa/data-jobs/${jobId}`, data);
+    return res.data;
+  },
+
+  qaDeleteDataJob: async (jobId: string): Promise<any> => {
+    const res = await api.delete(`/qa/data-jobs/${jobId}`);
+    return res.data;
+  },
+
+  qaListMappings: async (jobId: string): Promise<any[]> => {
+    const res = await api.get(`/qa/data-jobs/${jobId}/mappings`);
+    return res.data;
+  },
+
+  qaCreateMappings: async (jobId: string, mappings: any[]): Promise<any[]> => {
+    const res = await api.post(`/qa/data-jobs/${jobId}/mappings`, { mappings });
+    return res.data;
+  },
+
+  qaSuggestMappings: async (jobId: string): Promise<any[]> => {
+    const res = await api.post(`/qa/data-jobs/${jobId}/mappings:suggest`, {});
+    return res.data;
+  },
+
+  qaUpdateMapping: async (mappingId: string, data: any): Promise<any> => {
+    const res = await api.patch(`/qa/data-mappings/${mappingId}`, data);
+    return res.data;
+  },
+
+  qaDeleteMapping: async (mappingId: string): Promise<any> => {
+    const res = await api.delete(`/qa/data-mappings/${mappingId}`);
+    return res.data;
+  },
+
+  qaCreateDataRule: async (projectId: string, data: any): Promise<any> => {
+    const res = await api.post('/qa/data-rules', data, { params: { project_id: projectId } });
+    return res.data;
+  },
+
+  qaListDataRules: async (projectId: string, params?: any): Promise<any[]> => {
+    const res = await api.get('/qa/data-rules', { params: { project_id: projectId, ...(params || {}) } });
+    return res.data;
+  },
+
+  qaGenerateDataRules: async (projectId: string, data: any): Promise<any[]> => {
+    const res = await api.post('/qa/data-rules:generate', data, { params: { project_id: projectId } });
+    return res.data;
+  },
+
+  qaUpdateDataRule: async (ruleId: string, data: any): Promise<any> => {
+    const res = await api.patch(`/qa/data-rules/${ruleId}`, data);
+    return res.data;
+  },
+
+  qaDeleteDataRule: async (ruleId: string): Promise<any> => {
+    const res = await api.delete(`/qa/data-rules/${ruleId}`);
+    return res.data;
+  },
+
+  qaRunDataJob: async (jobId: string, data?: any): Promise<any> => {
+    const res = await api.post(`/qa/data-jobs/${jobId}/run`, data || {});
+    return res.data;
+  },
+
+  qaListDifferences: async (jobId: string, params?: any): Promise<any[]> => {
+    const res = await api.get(`/qa/data-jobs/${jobId}/differences`, { params });
+    return res.data;
+  },
+
+  qaUpdateDifference: async (diffId: string, data: any): Promise<any> => {
+    const res = await api.patch(`/qa/data-differences/${diffId}`, data);
+    return res.data;
+  },
+
+  qaDraftDataBug: async (executionId: string, data?: any): Promise<any> => {
+    const res = await api.post(`/qa/executions/${executionId}/data-bug:draft`, data || {});
+    return res.data;
+  },
+
+  qaDataJobReport: async (jobId: string, executionId?: string): Promise<any> => {
+    const res = await api.get(`/qa/data-jobs/${jobId}/report`, { params: executionId ? { execution_id: executionId } : {} });
+    return res.data;
+  },
+
+  qaDataCoverage: async (projectId: string): Promise<any[]> => {
+    const res = await api.get('/qa/data-coverage', { params: { project_id: projectId } });
+    return res.data;
+  },
+
+  qaDataOverview: async (projectId: string): Promise<any> => {
+    const res = await api.get('/qa/data-overview', { params: { project_id: projectId } });
+    return res.data;
+  },
+
+  // Reports Intelligence Suite
+  harvestReportData: async (projectId: string, reportType = 'client_nippo', date?: string): Promise<any> => {
+    const res = await api.get('/intelligence/reports/harvest', {
+      params: { project_id: projectId, report_type: reportType, date }
+    });
+    return res.data;
+  },
+
+  uploadReportTemplate: async (file: File): Promise<any> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await api.post('/intelligence/reports/upload-template', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    return res.data;
+  },
+
+  generateReport: async (payload: {
+    project_id: string;
+    report_type: string;
+    is_auto_harvest: boolean;
+    manual_input_raw?: string;
+    target_language: string;
+    sender_name: string;
+    recipient_name: string;
+    selected_item_ids?: string[];
+    additional_notes?: string;
+    report_date?: string;
+    template_file_path?: string;
+    custom_text_template?: string;
+    provider?: string;
+    model?: string;
+  }): Promise<any> => {
+    const res = await api.post('/intelligence/reports/generate', payload);
+    return res.data;
+  },
+
+  getReportHistory: async (projectId: string, limit = 20): Promise<any[]> => {
+    const res = await api.get('/intelligence/reports/history', {
+      params: { project_id: projectId, limit }
+    });
+    return res.data;
+  },
+
+  getSingleReport: async (reportId: string): Promise<any> => {
+    const res = await api.get(`/intelligence/reports/${reportId}`);
+    return res.data;
+  },
+
+  deleteReport: async (reportId: string): Promise<any> => {
+    const res = await api.delete(`/intelligence/reports/${reportId}`);
+    return res.data;
+  },
+
+  getReportExportUrl: (reportId: string, format: 'pptx' | 'docx' | 'xlsx'): string => {
+    return `${API_BASE_URL}/intelligence/reports/${reportId}/export-${format}`;
+  },
+
+  // Quick QA Copilot Studio
+  quickQAAnalyze: async (payload: {
+    project_id?: string;
+    spec_text: string;
+    mode: string;
+    custom_instruction?: string;
+    is_auto_harvest?: boolean;
+    target_language?: string;
+    preferred_provider?: string;
+    model?: string;
+  }): Promise<any> => {
+    const res = await api.post('/qa/quick-analyze', payload);
+    return res.data;
+  },
+
+  quickQASave: async (payload: {
+    project_id: string;
+    item_type: 'test_case' | 'bug' | 'question';
+    title: string;
+    description: string;
+    steps?: any[];
+    priority?: string;
+  }): Promise<any> => {
+    const res = await api.post('/qa/quick-save', payload);
     return res.data;
   }
 };

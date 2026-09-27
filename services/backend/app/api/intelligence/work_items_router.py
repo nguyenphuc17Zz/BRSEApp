@@ -30,6 +30,7 @@ class WorkItemResponse(BaseModel):
     item_type: str
     title: str
     description: str
+    req_code: Optional[str] = None
     details_json: str
     status: str
     priority: str
@@ -51,6 +52,7 @@ class WorkItemCreate(BaseModel):
     item_type: str
     title: str
     description: str = ""
+    req_code: Optional[str] = None
     details_json: str = "{}"
     status: str = "PROPOSED"
     priority: str = "MEDIUM"
@@ -104,6 +106,7 @@ async def list_work_items(
             id=item.id,
             project_id=item.project_id,
             item_type=item.item_type,
+            req_code=item.req_code,
             title=item.title,
             description=item.description,
             details_json=item.details_json,
@@ -187,8 +190,27 @@ async def create_work_item(payload: WorkItemCreate, db: AsyncSession = Depends(g
         deadline_date=payload.deadline_date,
         confidence=payload.confidence
     )
+    if payload.req_code:
+        item.req_code = payload.req_code
     db.add(item)
     await db.flush()
+
+    # Auto-assign human-readable REQ-XXX code for requirements
+    if item.item_type == "REQUIREMENT" and not item.req_code:
+        res = await db.execute(select(WorkItem.req_code).where(
+            WorkItem.project_id == item.project_id,
+            WorkItem.item_type == "REQUIREMENT",
+            WorkItem.req_code.isnot(None),
+            WorkItem.id != item.id,
+        ))
+        max_n = 0
+        import re as _re
+        for (code,) in res.all():
+            m = _re.search(r"(\d+)$", code or "")
+            if m:
+                max_n = max(max_n, int(m.group(1)))
+        item.req_code = f"REQ-{max_n + 1:03d}"
+        await db.flush()
 
     if payload.quote_text:
         ev = WorkItemEvidence(

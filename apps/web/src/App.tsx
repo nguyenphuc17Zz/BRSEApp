@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
+import { Topbar } from './components/Topbar';
 import { TranslatorPage } from './pages/TranslatorPage';
 import { DocumentsPage } from './pages/DocumentsPage';
 import { IntegrationsPage } from './pages/IntegrationsPage';
@@ -7,16 +8,18 @@ import { QuickTranslateModal } from './pages/QuickTranslateModal';
 import { BrSEDashboardPage } from './pages/BrSEDashboardPage';
 import { ProjectBrainPage } from './pages/ProjectBrainPage';
 import { MeetingsPage } from './pages/MeetingsPage';
+import { ReportsPage } from './pages/ReportsPage';
 import { LineSmartPage } from './pages/LineSmartPage';
-import { DashboardPage } from './pages/DashboardPage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { GlossaryPage } from './pages/GlossaryPage';
 import { MemoryPage } from './pages/MemoryPage';
 import { HistoryPage } from './pages/HistoryPage';
 import { ProvidersPage } from './pages/ProvidersPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { QAWorkspace } from './pages/qa/QAWorkspace';
 import { apiClient } from './api/client';
 import { Project } from './types';
+import { ThemeProvider } from './context/ThemeContext';
 import { ToastProvider } from './context/ToastContext';
 import { ConfirmDialogProvider } from './context/ConfirmDialogContext';
 import { LoadingBarProvider } from './context/LoadingBarContext';
@@ -28,6 +31,33 @@ export const AppContent: React.FC = () => {
   const [activeProject, setActiveProject] = useState<Project | null>(null);
   const [isBackendHealthy, setIsBackendHealthy] = useState(false);
   const [isQuickTranslateOpen, setIsQuickTranslateOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [qaRoute, setQaRoute] = useState<string>(() => {
+    const h = window.location.hash.replace(/^#/, '');
+    return h.startsWith('/qa') ? h : '/qa/overview';
+  });
+
+  // Deep-link: opening #/qa/... selects the QA Workspace tab
+  useEffect(() => {
+    const syncHash = () => {
+      const h = window.location.hash.replace(/^#/, '');
+      if (h.startsWith('/qa')) {
+        setQaRoute(h);
+        setCurrentTab('qa');
+      }
+    };
+    syncHash();
+    window.addEventListener('hashchange', syncHash);
+    return () => window.removeEventListener('hashchange', syncHash);
+  }, []);
+
+  const handleNavigateQA = (path: string) => {
+    setCurrentTab('qa');
+    setQaRoute(path);
+    if (window.location.hash !== `#${path}`) {
+      window.location.hash = `#${path}`;
+    }
+  };
 
   const handleSetActiveProject = (p: Project | null) => {
     setActiveProject(p);
@@ -59,7 +89,6 @@ export const AppContent: React.FC = () => {
       if (savedProject) {
         setActiveProject(savedProject);
       } else if (list.length > 0 && !activeProject) {
-        // Set first project (e.g. ABC Banking) as active by default if none saved
         setActiveProject(list[0]);
         saveActiveProjectId(list[0].id);
       }
@@ -69,7 +98,7 @@ export const AppContent: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-slate-950 font-sans text-slate-100">
+    <div className="flex h-screen w-screen overflow-hidden bg-canvas text-primary font-sans antialiased">
       <Sidebar
         currentTab={currentTab}
         setCurrentTab={setCurrentTab}
@@ -77,106 +106,133 @@ export const AppContent: React.FC = () => {
         activeProject={activeProject}
         setActiveProject={handleSetActiveProject}
         isBackendHealthy={isBackendHealthy}
+        isCollapsed={isSidebarCollapsed}
+        setIsCollapsed={setIsSidebarCollapsed}
+        qaRoute={qaRoute}
+        onNavigateQA={handleNavigateQA}
       />
 
-      <main className="flex-1 flex flex-col h-screen overflow-hidden">
-        {currentTab === 'brse-dashboard' && (
-          <BrSEDashboardPage
-            activeProject={activeProject}
-            projects={projects}
-            setActiveProject={handleSetActiveProject}
-          />
-        )}
+      <div className="flex-1 flex flex-col h-screen overflow-hidden min-w-0">
+        <Topbar
+          currentTab={currentTab}
+          projects={projects}
+          activeProject={activeProject}
+          setActiveProject={handleSetActiveProject}
+          isBackendHealthy={isBackendHealthy}
+          onOpenQuickTranslate={() => setIsQuickTranslateOpen(true)}
+          isSidebarCollapsed={isSidebarCollapsed}
+          setIsSidebarCollapsed={setIsSidebarCollapsed}
+        />
 
-        {currentTab === 'project-brain' && (
-          <ProjectBrainPage
-            activeProject={activeProject}
-            projects={projects}
-            setActiveProject={handleSetActiveProject}
-          />
-        )}
+        <main className="flex-1 flex flex-col overflow-hidden bg-canvas min-w-0">
+          {currentTab === 'brse-dashboard' && (
+            <BrSEDashboardPage
+              activeProject={activeProject}
+              projects={projects}
+              setActiveProject={handleSetActiveProject}
+              onNavigateTab={setCurrentTab}
+            />
+          )}
 
-        {currentTab === 'meetings' && (
-          <MeetingsPage
-            activeProject={activeProject}
-            projects={projects}
-            setActiveProject={handleSetActiveProject}
-          />
-        )}
+          {currentTab === 'project-brain' && (
+            <ProjectBrainPage
+              activeProject={activeProject}
+              projects={projects}
+              setActiveProject={handleSetActiveProject}
+            />
+          )}
 
-        {currentTab === 'line-chat' && (
-          <LineSmartPage
-            activeProject={activeProject}
-            onNavigateToBrSE={() => setCurrentTab('brse-dashboard')}
-          />
-        )}
+          {currentTab === 'meetings' && (
+            <MeetingsPage
+              activeProject={activeProject}
+              projects={projects}
+              setActiveProject={handleSetActiveProject}
+            />
+          )}
 
-        {currentTab === 'translator' && (
-          <TranslatorPage
-            activeProject={activeProject}
-            projects={projects}
-            setActiveProject={handleSetActiveProject}
-          />
-        )}
+          {currentTab === 'reports' && (
+            <ReportsPage
+              activeProject={activeProject}
+              projects={projects}
+              setActiveProject={handleSetActiveProject}
+            />
+          )}
 
-        {currentTab === 'documents' && (
-          <DocumentsPage
-            activeProject={activeProject}
-            projects={projects}
-          />
-        )}
+          {currentTab === 'line-chat' && (
+            <LineSmartPage
+              activeProject={activeProject}
+              onNavigateToBrSE={() => setCurrentTab('brse-dashboard')}
+            />
+          )}
 
-        {currentTab === 'integrations' && (
-          <IntegrationsPage
-            activeProject={activeProject}
-            projects={projects}
-            onOpenQuickTranslate={() => setIsQuickTranslateOpen(true)}
-          />
-        )}
+          {currentTab === 'translator' && (
+            <TranslatorPage
+              activeProject={activeProject}
+              projects={projects}
+              setActiveProject={handleSetActiveProject}
+            />
+          )}
 
-        {currentTab === 'dashboard' && (
-          <DashboardPage
-            activeProject={activeProject}
-            setCurrentTab={setCurrentTab}
-          />
-        )}
+          {currentTab === 'documents' && (
+            <DocumentsPage
+              activeProject={activeProject}
+              projects={projects}
+            />
+          )}
 
-        {currentTab === 'projects' && (
-          <ProjectsPage
-            projects={projects}
-            activeProject={activeProject}
-            setActiveProject={handleSetActiveProject}
-            refreshProjects={loadProjects}
-          />
-        )}
+          {currentTab === 'integrations' && (
+            <IntegrationsPage
+              activeProject={activeProject}
+              projects={projects}
+              onOpenQuickTranslate={() => setIsQuickTranslateOpen(true)}
+            />
+          )}
 
-        {currentTab === 'glossary' && (
-          <GlossaryPage
-            activeProject={activeProject}
-            projects={projects}
-          />
-        )}
+          {currentTab === 'projects' && (
+            <ProjectsPage
+              projects={projects}
+              activeProject={activeProject}
+              setActiveProject={handleSetActiveProject}
+              refreshProjects={loadProjects}
+            />
+          )}
 
-        {currentTab === 'memory' && (
-          <MemoryPage
-            activeProject={activeProject}
-          />
-        )}
+          {currentTab === 'glossary' && (
+            <GlossaryPage
+              activeProject={activeProject}
+              projects={projects}
+            />
+          )}
 
-        {currentTab === 'history' && (
-          <HistoryPage
-            activeProject={activeProject}
-          />
-        )}
+          {currentTab === 'memory' && (
+            <MemoryPage
+              activeProject={activeProject}
+            />
+          )}
 
-        {currentTab === 'providers' && (
-          <ProvidersPage />
-        )}
+          {currentTab === 'history' && (
+            <HistoryPage
+              activeProject={activeProject}
+            />
+          )}
 
-        {currentTab === 'settings' && (
-          <SettingsPage />
-        )}
-      </main>
+          {currentTab === 'qa' && (
+            <QAWorkspace
+              activeProject={activeProject}
+              projects={projects}
+              setActiveProject={handleSetActiveProject}
+            />
+          )}
+
+          {currentTab === 'providers' && (
+            <ProvidersPage />
+          )}
+
+          {currentTab === 'settings' && (
+            <SettingsPage />
+          )}
+        </main>
+      </div>
 
       <QuickTranslateModal
         isOpen={isQuickTranslateOpen}
@@ -190,14 +246,17 @@ export const AppContent: React.FC = () => {
 
 export const App: React.FC = () => {
   return (
-    <LoadingBarProvider>
-      <ToastProvider>
-        <ConfirmDialogProvider>
-          <AppContent />
-        </ConfirmDialogProvider>
-      </ToastProvider>
-    </LoadingBarProvider>
+    <ThemeProvider>
+      <LoadingBarProvider>
+        <ToastProvider>
+          <ConfirmDialogProvider>
+            <AppContent />
+          </ConfirmDialogProvider>
+        </ToastProvider>
+      </LoadingBarProvider>
+    </ThemeProvider>
   );
 };
 
 export default App;
+

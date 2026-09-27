@@ -24,11 +24,8 @@ yarn-error.log*
 *.db-shm
 *.sqlite
 *.sqlite3
-data/keys/
-data/documents/
-data/cache/
-data/*.db
-**/data/*.db
+data/
+services/data/
 
 # IDE / OS
 .vscode/

@@ -99,11 +99,11 @@ export const GoogleAccountSwitcher: React.FC<GoogleAccountSwitcherProps> = ({
   if (!accounts || accounts.length === 0) return null;
 
   return (
-    <div className="p-3 bg-slate-900/90 rounded-xl border border-slate-800 shadow-md flex flex-col md:flex-row md:items-center justify-between gap-3">
+    <div className="p-3 bg-surface rounded-xl border border-border-subtle shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
       {/* Account Tabs */}
       <div className="flex items-center gap-2 flex-wrap min-w-0">
-        <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium mr-1.5">
-          <Cloud className="w-4 h-4 text-sky-400" />
+        <div className="flex items-center gap-1.5 text-xs text-text-secondary font-medium mr-1.5">
+          <Cloud className="w-4 h-4 text-primary" />
           <span>Google Drive ({accounts.length}):</span>
         </div>
 
@@ -118,14 +118,14 @@ export const GoogleAccountSwitcher: React.FC<GoogleAccountSwitcherProps> = ({
                 onClick={() => onSelectAccount(acc.id)}
                 className={`group flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium cursor-pointer transition-all ${
                   isSelected
-                    ? 'bg-sky-600/20 border-sky-500 text-white shadow-sm shadow-sky-600/10'
-                    : 'bg-slate-800/80 border-slate-700/80 text-slate-300 hover:bg-slate-800 hover:text-white hover:border-slate-600'
+                    ? 'bg-primary/10 border-primary/40 text-primary shadow-xs'
+                    : 'bg-surface-subtle border-border-subtle text-text-secondary hover:bg-surface-hover hover:text-text-primary hover:border-border-default'
                 } ${isRemoving ? 'opacity-50 pointer-events-none' : ''}`}
               >
                 <div className="flex items-center gap-1.5">
                   <div
                     className={`w-2 h-2 rounded-full ${
-                      isSelected ? 'bg-emerald-400 shadow-sm shadow-emerald-400/50' : 'bg-slate-500'
+                      isSelected ? 'bg-emerald-500 shadow-sm shadow-emerald-500/50' : 'bg-text-muted'
                     }`}
                   />
                   <span className="truncate max-w-[180px]" title={acc.email}>
@@ -134,7 +134,7 @@ export const GoogleAccountSwitcher: React.FC<GoogleAccountSwitcherProps> = ({
                 </div>
 
                 {isSelected && (
-                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300 font-semibold border border-sky-500/30">
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-primary/15 text-primary font-semibold border border-primary/20">
                     Đang xem
                   </span>
                 )}
@@ -143,7 +143,7 @@ export const GoogleAccountSwitcher: React.FC<GoogleAccountSwitcherProps> = ({
                   type="button"
                   onClick={(e) => handleDisconnect(e, acc)}
                   title={`Ngắt kết nối ${acc.email}`}
-                  className="text-slate-400 hover:text-rose-400 p-0.5 rounded transition-colors opacity-60 group-hover:opacity-100 hover:bg-rose-500/10"
+                  className="text-text-muted hover:text-rose-500 p-0.5 rounded transition-colors opacity-60 group-hover:opacity-100 hover:bg-rose-500/10 cursor-pointer"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -158,7 +158,7 @@ export const GoogleAccountSwitcher: React.FC<GoogleAccountSwitcherProps> = ({
         type="button"
         onClick={handleAddAccount}
         disabled={isAdding}
-        className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700/90 text-sky-400 hover:text-sky-300 text-xs font-medium flex items-center gap-1.5 transition-all shadow-sm active:scale-95 disabled:opacity-50"
+        className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-surface-subtle hover:bg-surface-hover border border-border-default text-primary hover:text-primary-hover text-xs font-medium flex items-center gap-1.5 transition-all shadow-xs active:scale-95 disabled:opacity-50 cursor-pointer"
       >
         <Plus className="w-3.5 h-3.5" />
         <span>{isAdding ? 'Đang mở OAuth...' : '+ Thêm tài khoản Google'}</span>

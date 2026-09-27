@@ -52,6 +52,17 @@ class GoogleJobManager:
         if job_id in self._active_tasks:
             self._active_tasks[job_id].cancel()
 
+    @staticmethod
+    async def _update_google_stage(job_id: str, stage_desc: str):
+        try:
+            async with async_session_maker() as stage_db:
+                j_cur = (await stage_db.execute(select(DocumentJob).where(DocumentJob.id == job_id))).scalar_one_or_none()
+                if j_cur:
+                    j_cur.current_stage = stage_desc
+                    await stage_db.commit()
+        except Exception as st_err:
+            logger.debug(f"Google stage update notice: {st_err}")
+
     async def _run_job_pipeline(self, job_id: str):
         """Executes the full Google Document translation lifecycle: analyzing -> segmenting -> translating -> QA -> rendering to copy."""
         try:
@@ -444,7 +455,8 @@ class GoogleJobManager:
                             ocr_engine=options.get("ocr_mode", "paddleocr"),
                             translate_images=options.get("translate_images", True),
                             provider=provider,
-                            is_mock=is_mock
+                            is_mock=is_mock,
+                            on_progress=lambda msg: self._update_google_stage(job_id, msg)
                         )
                     else:
                         updates = []
@@ -516,7 +528,8 @@ class GoogleJobManager:
                             ocr_engine=options.get("ocr_mode", "paddleocr"),
                             translate_images=options.get("translate_images", True),
                             provider=provider,
-                            is_mock=is_mock
+                            is_mock=is_mock,
+                            on_progress=lambda msg: self._update_google_stage(job_id, msg)
                         )
                     else:
                         slide_updates = []
@@ -550,7 +563,8 @@ class GoogleJobManager:
                                     target_lang=job.target_language or "ja",
                                     ocr_engine=options.get("ocr_mode", "paddleocr"),
                                     provider=provider,
-                                    is_mock=is_mock
+                                    is_mock=is_mock,
+                                    on_progress=lambda msg: self._update_google_stage(job_id, msg)
                                 )
                             except Exception as img_err:
                                 logger.warning(f"Could not translate embedded images for presentation {copy_id}: {img_err}")
@@ -644,7 +658,8 @@ class GoogleJobManager:
                                 target_lang=job.target_language or "ja",
                                 ocr_engine=ocr_mode,
                                 provider=provider,
-                                is_mock=is_mock
+                                is_mock=is_mock,
+                                on_progress=lambda msg: self._update_google_stage(job_id, msg)
                             )
                         except Exception as img_err:
                             logger.warning(f"Could not translate embedded images for copy {copy_id}: {img_err}")
@@ -1025,7 +1040,8 @@ class GoogleJobManager:
                         options=render_opts,
                         src_lang=job.source_language or "ja",
                         tgt_lang=job.target_language or "vi",
-                        provider=provider
+                        provider=provider,
+                        on_progress=lambda msg: self._update_google_stage(job_id, msg)
                     )
                 except Exception as render_err:
                     logger.warning(f"Error during native render: {render_err}. Writing fallback file.")

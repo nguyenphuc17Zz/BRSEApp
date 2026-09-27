@@ -127,43 +127,43 @@ export const SearchableModelSelect: React.FC<SearchableModelSelectProps> = ({
         onClick={() => setIsOpen(!isOpen)}
         className={`flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg border text-xs font-mono transition-all outline-none ${
           disabled
-            ? 'bg-slate-900/60 border-slate-800/80 text-slate-500 cursor-not-allowed'
+            ? 'bg-surface-subtle border-border-subtle text-text-muted cursor-not-allowed'
             : isOpen
-            ? 'bg-slate-800 border-sky-500 shadow-md shadow-sky-500/20 text-white'
-            : 'bg-slate-850 hover:bg-slate-800 border-slate-700 text-slate-200 hover:border-slate-600'
+            ? 'bg-surface border-primary shadow-subtle text-text-primary ring-1 ring-primary'
+            : 'bg-surface hover:bg-surface-hover border-border-default text-text-primary'
         } ${buttonClassName}`}
       >
         <div className="flex items-center gap-1.5 truncate">
           {disabled ? (
-            <span className="truncate italic text-slate-400">{disabledPlaceholder}</span>
+            <span className="truncate italic text-text-muted">{disabledPlaceholder}</span>
           ) : selectedModel ? (
             <>
               <span className="truncate">{selectedModel}</span>
               {defaultModel && selectedModel === defaultModel && (
-                <span className="hidden sm:inline-flex px-1.5 py-0.2 rounded text-[9px] font-sans font-semibold bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                <span className="hidden sm:inline-flex px-2 py-0.5 rounded text-[9px] font-sans font-semibold bg-primary/10 text-primary border border-primary/20">
                   Default
                 </span>
               )}
             </>
           ) : (
-            <span className="text-slate-500">{placeholder}</span>
+            <span className="text-text-muted">{placeholder}</span>
           )}
         </div>
 
         <ChevronDown
-          className={`w-3.5 h-3.5 text-slate-400 flex-shrink-0 transition-transform duration-200 ${
-            isOpen ? 'rotate-180 text-sky-400' : ''
+          className={`w-3.5 h-3.5 text-text-muted flex-shrink-0 transition-transform duration-200 ${
+            isOpen ? 'rotate-180 text-primary' : ''
           }`}
         />
       </button>
 
-      {/* Glassmorphic Combobox Popover */}
+      {/* Combobox Popover */}
       {isOpen && !disabled && (
-        <div className="absolute z-[100] mt-1.5 w-full min-w-[280px] max-w-[360px] rounded-xl border border-slate-700/80 bg-slate-900/95 backdrop-blur-xl shadow-2xl shadow-black/80 overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150">
+        <div className="absolute z-[100] mt-1.5 w-full min-w-[280px] max-w-[360px] rounded-xl border border-border-default bg-surface-elevated shadow-modal overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-150">
           {/* Search Header */}
-          <div className="p-2 border-b border-slate-800 bg-slate-950/70 flex items-center gap-2">
+          <div className="p-2 border-b border-border-subtle bg-surface-subtle flex items-center gap-2">
             <div className="relative flex-1">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+              <Search className="w-3.5 h-3.5 text-text-muted absolute left-2.5 top-2.5" />
               <input
                 ref={searchInputRef}
                 type="text"
@@ -173,7 +173,7 @@ export const SearchableModelSelect: React.FC<SearchableModelSelectProps> = ({
                   setHighlightedIndex(0);
                 }}
                 placeholder="Gõ để tìm model (e.g. flash, 70b, qwen)..."
-                className="w-full bg-slate-900 border border-slate-700/80 rounded-lg pl-8 pr-7 py-1.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-sky-500 font-sans"
+                className="w-full bg-surface border border-border-default rounded-lg pl-8 pr-7 py-1.5 text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary font-sans"
               />
               {searchQuery && (
                 <button
@@ -181,7 +181,7 @@ export const SearchableModelSelect: React.FC<SearchableModelSelectProps> = ({
                     setSearchQuery('');
                     searchInputRef.current?.focus();
                   }}
-                  className="absolute right-2 top-2 text-slate-400 hover:text-white p-0.5 rounded"
+                  className="absolute right-2 top-2 text-text-muted hover:text-text-primary p-0.5 rounded"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -190,20 +190,20 @@ export const SearchableModelSelect: React.FC<SearchableModelSelectProps> = ({
           </div>
 
           {/* Result Count Indicator */}
-          <div className="px-3 py-1 bg-slate-950/40 border-b border-slate-800/60 flex items-center justify-between text-[10px] text-slate-400 font-mono">
+          <div className="px-3 py-1 bg-surface-subtle/50 border-b border-border-subtle flex items-center justify-between text-[10px] text-text-muted font-mono">
             <span>
-              Tìm thấy: <strong className="text-sky-300">{filteredModels.length}</strong> / {models.length} models
+              Tìm thấy: <strong className="text-primary">{filteredModels.length}</strong> / {models.length} models
             </span>
             {searchQuery && (
-              <span className="text-slate-500">Lọc theo: "{searchQuery}"</span>
+              <span className="text-text-muted">Lọc theo: "{searchQuery}"</span>
             )}
           </div>
 
           {/* Scrollable Model List */}
           <div ref={listRef} className="max-h-60 overflow-y-auto p-1.5 space-y-0.5 font-mono text-xs">
             {filteredModels.length === 0 ? (
-              <div className="p-6 text-center text-slate-500 text-xs font-sans">
-                <Search className="w-6 h-6 mx-auto mb-2 text-slate-600" />
+              <div className="p-6 text-center text-text-muted text-xs font-sans">
+                <Search className="w-6 h-6 mx-auto mb-2 text-text-muted/60" />
                 <p>Không tìm thấy model nào khớp với "{searchQuery}"</p>
               </div>
             ) : (
@@ -223,23 +223,23 @@ export const SearchableModelSelect: React.FC<SearchableModelSelectProps> = ({
                     onMouseEnter={() => setHighlightedIndex(idx)}
                     className={`w-full text-left px-3 py-2 rounded-lg flex items-center justify-between gap-2 transition-colors ${
                       isSelected
-                        ? 'bg-sky-600/20 text-sky-200 border border-sky-500/30'
+                        ? 'bg-primary/10 text-primary font-medium border border-primary/20'
                         : isHighlighted
-                        ? 'bg-slate-800/90 text-white'
-                        : 'text-slate-300 hover:bg-slate-800/50'
+                        ? 'bg-surface-hover text-text-primary'
+                        : 'text-text-secondary hover:bg-surface-hover hover:text-text-primary'
                     }`}
                   >
                     <div className="flex items-center gap-2 truncate flex-1">
                       <span className="truncate">{renderHighlightedText(model, searchQuery)}</span>
                       {isDefault && (
-                        <span className="px-1.5 py-0.2 rounded text-[9px] font-sans font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex-shrink-0">
+                        <span className="px-2 py-0.5 rounded text-[9px] font-sans font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex-shrink-0">
                           Default
                         </span>
                       )}
                     </div>
 
                     {isSelected && (
-                      <Check className="w-3.5 h-3.5 text-sky-400 flex-shrink-0" />
+                      <Check className="w-3.5 h-3.5 text-primary flex-shrink-0" />
                     )}
                   </button>
                 );

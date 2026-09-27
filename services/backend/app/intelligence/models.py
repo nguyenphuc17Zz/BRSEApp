@@ -20,6 +20,7 @@ class WorkItem(Base):
     # REQUIREMENT, BUG, QUESTION, DECISION, TODO, RISK, DEADLINE, DEPENDENCY, OPEN_QUESTION, MEETING_ITEM
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
+    req_code: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True) # Human-readable display code e.g. REQ-101 (per project)
     details_json: Mapped[str] = mapped_column(Text, default="{}") # structured fields (Actor, Action, Condition, Env, Expected vs Actual, etc.)
     status: Mapped[str] = mapped_column(String(30), default="PROPOSED", index=True)
     # PROPOSED, CONFIRMED, IN_PROGRESS, BLOCKED, DONE, REJECTED, SUPERSEDED, NEEDS_CONFIRMATION, CONFLICT
@@ -156,4 +157,34 @@ class LineCapturedMessage(Base):
     rag_sources: Mapped[list] = mapped_column(JSON, default=list)
     sync_result: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow)
+
+
+class ReportRecord(Base):
+    """Stores generated Daily (Nippo), Weekly (Shuho), and Standup reports with multi-channel formats."""
+    __tablename__ = "report_records"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    project_id: Mapped[str] = mapped_column(String(36), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    report_type: Mapped[str] = mapped_column(String(50), nullable=False, index=True) # client_nippo, client_shuho, internal_standup
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    report_date: Mapped[str] = mapped_column(String(30), nullable=False) # YYYY-MM-DD
+    recipient_name: Mapped[Optional[str]] = mapped_column(String(150), nullable=True)
+    sender_name: Mapped[Optional[str]] = mapped_column(String(150), nullable=True)
+    
+    # Input Mode & Raw
+    is_auto_harvest: Mapped[bool] = mapped_column(Boolean, default=False)
+    manual_input_raw: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    target_language: Mapped[str] = mapped_column(String(20), default="ja") # ja, vi, bilingual
+    template_file_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    
+    # Formatted Contents
+    content_markdown: Mapped[str] = mapped_column(Text, nullable=False)
+    content_html: Mapped[str] = mapped_column(Text, default="")
+    content_chatwork: Mapped[str] = mapped_column(Text, default="")
+    content_slack: Mapped[str] = mapped_column(Text, default="")
+    content_vietnamese_preview: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    raw_items_json: Mapped[str] = mapped_column(Text, default="[]") # JSON list of selected work item IDs or tags
+    created_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow, index=True)
+    updated_at: Mapped[datetime.datetime] = mapped_column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
 

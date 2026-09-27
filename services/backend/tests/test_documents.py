@@ -486,4 +486,24 @@ async def test_list_documents_excludes_cloud_by_default():
         assert "cloud_spec.gdoc" in filenames_all
 
 
+@pytest.mark.asyncio
+async def test_common_paths_endpoint_routing():
+    """Regression test: verify /api/documents/common-paths is accessible and not shadowed by /{document_id}."""
+    from httpx import AsyncClient, ASGITransport
+    from app.main import app
 
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        res = await ac.get("/api/documents/common-paths")
+        assert res.status_code == 200
+        data = res.json()
+        assert "desktop" in data
+        assert "downloads" in data
+        assert "documents" in data
+        assert "default_output" in data
+        assert data["default_output"] == "data/documents/output"
+
+        # Verify /{document_id} still correctly returns 404 for unknown document IDs
+        res_unknown = await ac.get("/api/documents/non-existent-doc-uuid")
+        assert res_unknown.status_code == 404
+        assert res_unknown.json().get("detail") == "Document not found."

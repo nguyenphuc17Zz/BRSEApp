@@ -140,18 +140,6 @@ export interface ProviderInfo {
   last_checked_at?: string;
 }
 
-export interface DashboardData {
-  current_project?: Project | null;
-  total_projects: number;
-  total_glossary_terms: number;
-  total_tm_entries: number;
-  total_translations: number;
-  recent_translations: any[];
-  top_glossary_terms: GlossaryTerm[];
-  providers_status: ProviderInfo[];
-  recent_corrections: any[];
-}
-
 export interface DocumentItem {
   id: string;
   project_id?: string | null;
@@ -235,7 +223,7 @@ export interface DocumentTranslateConfig {
   selected_units?: string[] | null;
 }
 
-// Phase 3: Workspace & Communication Integrations
+// Workspace & Communication Integrations
 export interface GoogleAccountItem {
   id: string;
   email: string;
@@ -354,7 +342,7 @@ export interface QuickTranslateResult {
   used_memory?: any[];
 }
 
-// Phase 4 — BrSE Brain & Intelligence Types
+// BrSE Brain & Intelligence Types
 export interface WorkItemEvidence {
   id: string;
   source_type: string;
@@ -372,6 +360,7 @@ export interface WorkItem {
   item_type: 'REQUIREMENT' | 'BUG' | 'QUESTION' | 'DECISION' | 'TODO' | 'RISK' | 'DEADLINE' | 'DEPENDENCY' | 'OPEN_QUESTION' | 'MEETING_ITEM';
   title: string;
   description: string;
+  req_code?: string | null;
   details_json: string;
   status: 'PROPOSED' | 'CONFIRMED' | 'IN_PROGRESS' | 'BLOCKED' | 'DONE' | 'REJECTED' | 'SUPERSEDED' | 'NEEDS_CONFIRMATION' | 'CONFLICT';
   priority: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';

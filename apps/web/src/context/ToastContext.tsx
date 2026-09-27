@@ -45,8 +45,8 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   return (
     <ToastContext.Provider value={{ toast, removeToast }}>
       {children}
-      {/* Toast Floating Container at Top-Right */}
-      <div className="fixed top-4 right-4 z-[9999] flex flex-col gap-2.5 max-w-sm w-full pointer-events-none">
+      {/* Toast Floating Container at Bottom-Right */}
+      <div className="fixed bottom-5 right-5 z-[9999] flex flex-col-reverse gap-2.5 max-w-sm w-full pointer-events-none">
         {toasts.map((t) => (
           <ToastCard key={t.id} toast={t} onClose={() => removeToast(t.id)} />
         ))}
@@ -148,7 +148,7 @@ const ToastCard: React.FC<{ toast: ToastItem; onClose: () => void }> = ({ toast,
     <div
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      className={`pointer-events-auto relative overflow-hidden rounded-xl backdrop-blur-xl bg-slate-900/95 border ${s.border} shadow-xl ${s.glow} p-3.5 text-slate-100 transition-all duration-300 transform translate-y-0 opacity-100 animate-in slide-in-from-top-3`}
+      className={`pointer-events-auto relative overflow-hidden rounded-xl bg-surface-elevated border ${s.border} shadow-elevated p-3.5 text-text-primary transition-all duration-300 transform translate-y-0 opacity-100 animate-in slide-in-from-bottom-3`}
     >
       <div className="flex items-start gap-3">
         <div className={`w-8 h-8 rounded-lg ${s.iconBg} flex items-center justify-center flex-shrink-0 mt-0.5`}>
@@ -156,17 +156,17 @@ const ToastCard: React.FC<{ toast: ToastItem; onClose: () => void }> = ({ toast,
         </div>
 
         <div className="flex-1 min-w-0 pr-1">
-          <div className="text-xs font-semibold text-white tracking-tight">
+          <div className="text-xs font-semibold text-text-primary tracking-tight">
             {toast.title || s.defaultTitle}
           </div>
-          <p className="text-xs text-slate-300 mt-0.5 leading-relaxed break-words font-sans">
+          <p className="text-xs text-text-secondary mt-0.5 leading-relaxed break-words font-sans">
             {toast.message}
           </p>
         </div>
 
         <button
           onClick={onClose}
-          className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition flex-shrink-0"
+          className="text-text-muted hover:text-text-primary p-1 rounded-md hover:bg-surface-hover transition flex-shrink-0"
           title="Close notification"
         >
           <X className="w-3.5 h-3.5" />
@@ -174,7 +174,7 @@ const ToastCard: React.FC<{ toast: ToastItem; onClose: () => void }> = ({ toast,
       </div>
 
       {/* Animated countdown progress bar */}
-      <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-slate-800/80">
+      <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-border-subtle">
         <div
           className={`h-full ${s.progressBar} transition-all duration-75`}
           style={{ width: `${progress}%` }}

@@ -1,4 +1,5 @@
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple, Callable
+import asyncio
 import json
 import re
 import httpx
@@ -320,6 +321,7 @@ Return JSON matching:
         translate_images: bool = True,
         provider: Any = None,
         is_mock: bool = False,
+        on_progress: Optional[Callable[[str], Any]] = None,
     ):
         """SOTA 2D Semantic Matrix Myers Diff & Reverse-Index Dimension Sync for Google Sheets:
         1. Parses source and target spreadsheet grids into rich 2D SheetTab models with formula protection.
@@ -433,20 +435,40 @@ Return JSON matching:
                 from app.integrations.google.drive import GoogleDriveService
                 import uuid
 
+                total_imgs = len(image_cells_to_process)
+                logger.info(f"Found {total_imgs} in-cell images to translate in Google Sheet {target_spreadsheet_id}.")
+
                 async with httpx.AsyncClient(timeout=45.0) as http:
-                    for sh_title, img_cell in image_cells_to_process:
+                    for idx, (sh_title, img_cell) in enumerate(image_cells_to_process):
+                        if on_progress:
+                            try:
+                                if asyncio.iscoroutinefunction(on_progress):
+                                    await on_progress(f"Đang dịch hình ảnh trong bảng tính ({idx + 1}/{total_imgs})...")
+                                else:
+                                    res = on_progress(f"Đang dịch hình ảnh trong bảng tính ({idx + 1}/{total_imgs})...")
+                                    if asyncio.iscoroutine(res):
+                                        await res
+                            except Exception:
+                                pass
                         orig_url = img_cell.image_url
                         try:
                             img_res = await http.get(orig_url)
                             if img_res.status_code == 200 and len(img_res.content) > 20:
                                 orig_bytes = img_res.content
-                                trans_bytes = await image_translator.process_image(
-                                    image_bytes=orig_bytes,
-                                    src_lang=source_lang,
-                                    tgt_lang=target_lang,
-                                    ocr_engine=ocr_engine,
-                                    provider=provider
-                                )
+                                try:
+                                    trans_bytes = await asyncio.wait_for(
+                                        image_translator.process_image(
+                                            image_bytes=orig_bytes,
+                                            src_lang=source_lang,
+                                            tgt_lang=target_lang,
+                                            ocr_engine=ocr_engine,
+                                            provider=provider
+                                        ),
+                                        timeout=25.0
+                                    )
+                                except asyncio.TimeoutError:
+                                    logger.warning(f"Timeout (25s) translating in-cell image at {orig_url}, skipping.")
+                                    continue
                                 # Only upload if text was found and translated; otherwise keep original URL intact
                                 if trans_bytes and trans_bytes != orig_bytes:
                                     temp_fn = f"translated_sheet_img_{uuid.uuid4().hex[:8]}.png"

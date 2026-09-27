@@ -15,7 +15,8 @@ import {
   Send,
   Trash2,
   BookmarkPlus,
-  BookPlus
+  BookPlus,
+  RotateCcw
 } from 'lucide-react';
 import { apiClient } from '../api/client';
 import { Project, TranslationResponse, CandidateTranslation } from '../types';
@@ -23,6 +24,7 @@ import { useToast } from '../context/ToastContext';
 import { AiThinkingLoader } from '../components/skeletons/AiThinkingLoader';
 import { ProviderModelSelector } from '../components/ProviderModelSelector';
 import { getSavedProvider, getSavedModel, resolveHealthyModel } from '../utils/aiPreferences';
+import { Button, Badge, Modal, EmptyState, Select } from '../components/ui';
 
 interface TranslatorPageProps {
   activeProject: Project | null;
@@ -261,82 +263,73 @@ export const TranslatorPage: React.FC<TranslatorPageProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col h-screen overflow-hidden bg-slate-950">
-      {/* Top Toolbar */}
-      <div className="px-6 py-3 border-b border-slate-800/80 bg-slate-900/50 flex flex-wrap items-center justify-between gap-3">
-        {/* Project Selector */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-xs text-slate-400">
-            <span className="font-semibold text-slate-300">Project:</span>
-            <select
-              value={activeProject?.id || ''}
-              onChange={(e) => {
-                const found = projects.find(p => p.id === e.target.value);
-                setActiveProject(found || null);
-              }}
-              className="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded px-2.5 py-1 focus:outline-none focus:border-sky-500"
-            >
-              <option value="">Global (No Project)</option>
-              {projects.map(p => (
-                <option key={p.id} value={p.id}>{p.name} ({p.code})</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="h-4 w-px bg-slate-800" />
-
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-canvas">
+      {/* Top Workspace Toolbar */}
+      <div className="px-4 sm:px-6 py-2.5 border-b border-border-subtle bg-surface/70 backdrop-blur-sm flex flex-wrap items-center justify-between gap-3 flex-shrink-0">
+        <div className="flex items-center gap-3 flex-wrap">
           {/* Direction Toggle */}
-          <div className="flex items-center bg-slate-800/80 rounded-md p-0.5 border border-slate-700">
+          <div className="flex items-center bg-surface-subtle rounded-lg p-0.5 border border-border-subtle">
             <button
+              type="button"
               onClick={() => setDirection('ja-vi')}
-              className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                direction === 'ja-vi' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'
+              className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                direction === 'ja-vi'
+                  ? 'bg-surface-elevated text-primary font-semibold shadow-subtle border border-border-subtle'
+                  : 'text-text-secondary hover:text-text-primary'
               }`}
             >
-              Japanese → Vietnamese
+              JA → VI
             </button>
             <button
+              type="button"
               onClick={() => setDirection('vi-ja')}
-              className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                direction === 'vi-ja' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'
+              className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                direction === 'vi-ja'
+                  ? 'bg-surface-elevated text-primary font-semibold shadow-subtle border border-border-subtle'
+                  : 'text-text-secondary hover:text-text-primary'
               }`}
             >
-              Vietnamese → Japanese
+              VI → JA
             </button>
             <button
+              type="button"
               onClick={() => setDirection('auto')}
-              className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                direction === 'auto' ? 'bg-sky-600 text-white' : 'text-slate-400 hover:text-white'
+              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
+                direction === 'auto'
+                  ? 'bg-surface-elevated text-primary font-semibold shadow-subtle border border-border-subtle'
+                  : 'text-text-secondary hover:text-text-primary'
               }`}
             >
               Auto
             </button>
           </div>
 
-          <div className="h-4 w-px bg-slate-800" />
+          <div className="h-4 w-px bg-border-subtle hidden sm:block" />
 
           {/* Style Selector */}
-          <div className="flex items-center gap-1.5 text-xs text-slate-400">
-            <span className="font-semibold text-slate-300">Style:</span>
-            <select
+          <div className="flex items-center gap-1.5 text-xs text-text-secondary">
+            <span className="font-medium shrink-0">Văn phong:</span>
+            <Select
               value={style}
-              onChange={(e) => setStyle(e.target.value)}
-              className="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded px-2.5 py-1 focus:outline-none focus:border-sky-500"
-            >
-              <option value="auto">Auto / Smart Context</option>
-              <option value="business">Business (Doanh nghiệp chuẩn)</option>
-              <option value="technical">Technical (Kỹ thuật chính xác)</option>
-              <option value="very_polite">Very Polite (Kính ngữ cao)</option>
-              <option value="natural">Natural (Tự nhiên lưu loát)</option>
-              <option value="concise">Concise (Ngắn gọn súc tích)</option>
-              <option value="customer_facing">Customer-facing (Giao tiếp khách hàng)</option>
-              <option value="internal">Internal (Nội bộ nhóm phát triển)</option>
-              <option value="casual">Casual (Thân mật)</option>
-            </select>
+              onChange={(val) => setStyle(val)}
+              size="sm"
+              triggerClassName="min-w-[135px]"
+              options={[
+                { value: 'auto', label: 'Tự động' },
+                { value: 'business', label: 'Thương mại' },
+                { value: 'technical', label: 'Kỹ thuật' },
+                { value: 'very_polite', label: 'Kính ngữ' },
+                { value: 'natural', label: 'Tự nhiên' },
+                { value: 'concise', label: 'Súc tích' },
+                { value: 'customer_facing', label: 'Khách hàng' },
+                { value: 'internal', label: 'Nội bộ' },
+                { value: 'casual', label: 'Thân mật' },
+              ]}
+            />
           </div>
         </div>
 
-        {/* Split AI Provider & Searchable Model Combobox */}
+        {/* AI Provider & Searchable Model Combobox */}
         <ProviderModelSelector
           providers={providers}
           selectedProvider={selectedProvider}
@@ -348,23 +341,25 @@ export const TranslatorPage: React.FC<TranslatorPageProps> = ({
         />
       </div>
 
-      {/* Main Translation Grid */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 p-4 overflow-y-auto">
+      {/* Main Translation Grid: Source (Left) | Output (Right) */}
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 p-4 overflow-y-auto min-h-0">
         {/* Source Column */}
-        <div className="flex flex-col rounded-xl border border-slate-800 bg-slate-900/60 shadow-lg overflow-hidden">
+        <div className="flex flex-col rounded-xl border border-border-subtle bg-surface shadow-subtle overflow-hidden">
           {/* Header */}
-          <div className="px-4 py-2.5 border-b border-slate-800 flex items-center justify-between text-xs text-slate-400 bg-slate-900/90">
-            <span className="font-semibold text-slate-200 uppercase tracking-wider text-[11px] flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-sky-400" />
+          <div className="px-4 py-2.5 border-b border-border-subtle flex items-center justify-between text-xs bg-surface-subtle/50">
+            <span className="font-semibold text-text-primary uppercase tracking-wider text-[11px] flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-primary" />
               Source ({direction === 'vi-ja' ? 'Vietnamese' : 'Japanese'})
             </span>
             <div className="flex items-center gap-3">
-              <span className="text-[11px] font-mono text-slate-500">{sourceText.length} chars</span>
+              <span className="text-[11px] font-mono text-text-muted">{sourceText.length} chars</span>
               {sourceText && (
                 <button
+                  type="button"
                   onClick={() => setSourceText('')}
-                  className="hover:text-rose-400 transition-colors p-1"
+                  className="hover:text-rose-500 text-text-muted transition-colors p-1"
                   title="Clear text"
+                  aria-label="Clear source text"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -379,70 +374,64 @@ export const TranslatorPage: React.FC<TranslatorPageProps> = ({
               onChange={(e) => setSourceText(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Paste Japanese requirement, bug report, or message here... (e.g. この件は対象外です。)"
-              className="w-full h-full min-h-[260px] bg-transparent text-slate-100 placeholder-slate-500 text-sm leading-relaxed resize-none focus:outline-none font-sans"
+              className="w-full h-full min-h-[260px] bg-transparent text-text-primary placeholder:text-text-muted text-sm leading-relaxed resize-none focus:outline-none font-sans"
             />
           </div>
 
           {/* Action Footer */}
-          <div className="p-3 border-t border-slate-800 bg-slate-900/90 flex items-center justify-between">
-            <div className="flex items-center gap-2">
+          <div className="p-3 border-t border-border-subtle bg-surface-subtle/30 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 min-w-0">
               {activeProject && (
-                <span className="text-[11px] text-sky-400/90 bg-sky-950/40 border border-sky-800/40 px-2 py-0.5 rounded flex items-center gap-1">
-                  <BookOpen className="w-3 h-3" />
+                <Badge variant="primary" size="sm" className="truncate">
+                  <BookOpen className="w-3 h-3 mr-1" />
                   {activeProject.name} rules active
-                </span>
+                </Badge>
               )}
             </div>
 
-            <div className="flex items-center gap-2">
-              <button
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={handleOpenReplyModal}
                 disabled={!sourceText.trim() || isLoading}
-                className="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-750 text-slate-200 text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-40"
+                leftIcon={<MessageSquareReply className="w-3.5 h-3.5 text-primary" />}
               >
-                <MessageSquareReply className="w-3.5 h-3.5 text-sky-400" />
                 Reply Suggestion
-              </button>
+              </Button>
 
-              <button
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={handleTranslate}
                 disabled={!sourceText.trim() || isLoading}
-                className={`px-4 py-1.5 rounded-lg bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white text-xs font-semibold flex items-center gap-2 shadow-md shadow-sky-600/30 transition-all disabled:opacity-50 ${isLoading ? 'btn-loading-shimmer shadow-sky-500/50' : ''}`}
+                isLoading={isLoading}
+                leftIcon={<Sparkles className="w-3.5 h-3.5" />}
               >
-                {isLoading ? (
-                  <>
-                    <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    <span>Translating with AI...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>Translate</span>
-                    <span className="text-[10px] text-sky-200 font-mono opacity-80">(Ctrl+Enter)</span>
-                  </>
-                )}
-              </button>
+                <span>Translate</span>
+                <span className="text-[10px] text-white/70 font-mono hidden sm:inline">(Ctrl+Enter)</span>
+              </Button>
             </div>
           </div>
         </div>
 
         {/* Translation Output Column */}
-        <div className="flex flex-col rounded-xl border border-slate-800 bg-slate-900/60 shadow-lg overflow-hidden">
+        <div className="flex flex-col rounded-xl border border-border-subtle bg-surface shadow-subtle overflow-hidden">
           {/* Output Header */}
-          <div className="px-4 py-2.5 border-b border-slate-800 flex items-center justify-between text-xs text-slate-400 bg-slate-900/90">
-            <span className="font-semibold text-slate-200 uppercase tracking-wider text-[11px] flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+          <div className="px-4 py-2.5 border-b border-border-subtle flex items-center justify-between text-xs bg-surface-subtle/50">
+            <span className="font-semibold text-text-primary uppercase tracking-wider text-[11px] flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-500" />
               Translation ({direction === 'vi-ja' ? 'Japanese' : 'Vietnamese'})
             </span>
 
             {response && (
-              <div className="flex items-center gap-3 text-[11px] text-slate-400 font-mono">
+              <div className="flex items-center gap-3 text-[11px] text-text-muted font-mono">
                 <span className="flex items-center gap-1">
-                  <Cpu className="w-3 h-3 text-sky-400" />
+                  <Cpu className="w-3 h-3 text-primary" />
                   {response.provider} ({response.model})
                 </span>
                 <span className="flex items-center gap-1">
-                  <Clock className="w-3 h-3 text-slate-500" />
+                  <Clock className="w-3 h-3 text-text-muted" />
                   {response.latency_ms}ms
                 </span>
               </div>
@@ -456,23 +445,23 @@ export const TranslatorPage: React.FC<TranslatorPageProps> = ({
             )}
 
             {!isLoading && error && (
-              <div className="p-3.5 rounded-lg bg-rose-950/40 border border-rose-800/60 text-rose-300 text-xs flex items-start gap-2.5">
-                <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
+              <div className="p-3.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs flex items-start gap-2.5">
+                <AlertTriangle className="w-4 h-4 text-rose-500 flex-shrink-0 mt-0.5" />
                 <div>
                   <div className="font-semibold mb-0.5">Translation Error</div>
-                  <div className="text-rose-200/90">{error}</div>
+                  <div className="text-rose-500/90 leading-relaxed">{error}</div>
                 </div>
               </div>
             )}
 
             {/* QA Warnings */}
             {!isLoading && response && response.qa_warnings && response.qa_warnings.length > 0 && (
-              <div className="p-3 rounded-lg bg-amber-950/40 border border-amber-800/60 text-amber-300 text-xs space-y-1">
-                <div className="font-semibold flex items-center gap-1.5 text-amber-200">
-                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+              <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-300 text-xs space-y-1">
+                <div className="font-semibold flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
                   Translation QA Notices ({response.qa_warnings.length}):
                 </div>
-                <ul className="list-disc list-inside space-y-0.5 text-amber-200/90 pl-1">
+                <ul className="list-disc list-inside space-y-0.5 text-amber-600 dark:text-amber-400 pl-1">
                   {response.qa_warnings.map((warn, i) => (
                     <li key={i}>{warn}</li>
                   ))}
@@ -482,12 +471,12 @@ export const TranslatorPage: React.FC<TranslatorPageProps> = ({
 
             {/* Ambiguity Alert Notice */}
             {!isLoading && response && response.ambiguity_detected && (
-              <div className="p-3 rounded-lg bg-indigo-950/40 border border-indigo-800/60 text-indigo-300 text-xs">
-                <div className="font-semibold flex items-center gap-1.5 text-indigo-200 mb-1">
-                  <Layers className="w-3.5 h-3.5 text-indigo-400" />
+              <div className="p-3 rounded-lg bg-primary/10 border border-primary/20 text-primary text-xs">
+                <div className="font-semibold flex items-center gap-1.5 mb-1">
+                  <Layers className="w-3.5 h-3.5 text-primary" />
                   Multiple Interpretations Detected (Ambiguity)
                 </div>
-                <p className="text-indigo-200/80">
+                <p className="text-text-secondary leading-relaxed">
                   {response.ambiguity_reason || 'The source text has multiple valid business or technical nuances. Review the candidate options below.'}
                 </p>
               </div>
@@ -499,69 +488,77 @@ export const TranslatorPage: React.FC<TranslatorPageProps> = ({
                 key={idx}
                 className={`p-4 rounded-xl border transition-all ${
                   idx === 0
-                    ? 'border-slate-700 bg-slate-850/80 shadow-md'
-                    : 'border-slate-800/80 bg-slate-900/40 hover:border-slate-700'
+                    ? 'border-border-default bg-surface-elevated shadow-subtle'
+                    : 'border-border-subtle bg-surface-subtle/50 hover:border-border-default'
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold px-2 py-0.5 rounded bg-slate-700/80 text-slate-200 font-mono">
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded bg-surface-hover text-text-primary font-mono border border-border-subtle">
                       Option {idx + 1}
                     </span>
-                    <span className="text-[11px] font-medium uppercase tracking-wider px-2 py-0.5 rounded bg-sky-950/80 text-sky-300 border border-sky-800/40">
+                    <Badge variant="primary" size="sm">
                       {candidate.style}
-                    </span>
-                    <span className="text-[11px] text-slate-400 font-mono">
+                    </Badge>
+                    <span className="text-[11px] text-text-muted font-mono">
                       Confidence: {Math.round(candidate.confidence * 100)}%
                     </span>
                   </div>
 
-                  {/* Actions */}
-                  <div className="flex items-center gap-1.5">
+                  {/* Candidate Action Buttons */}
+                  <div className="flex items-center gap-1">
                     <button
+                      type="button"
                       onClick={() => copyToClipboard(candidate.text, idx)}
-                      className="p-1.5 rounded-md hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+                      className="p-1.5 rounded-md hover:bg-surface-hover text-text-muted hover:text-text-primary transition-colors"
                       title="Copy to clipboard"
+                      aria-label="Copy translation"
                     >
                       {copiedIndex === idx ? (
-                        <Check className="w-4 h-4 text-emerald-400" />
+                        <Check className="w-4 h-4 text-emerald-500" />
                       ) : (
                         <Copy className="w-4 h-4" />
                       )}
                     </button>
                     <button
+                      type="button"
                       onClick={() => handleExplain(candidate)}
-                      className="p-1.5 rounded-md hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+                      className="p-1.5 rounded-md hover:bg-surface-hover text-text-muted hover:text-primary transition-colors"
                       title="Explain translation nuances"
+                      aria-label="Explain nuance"
                     >
-                      <HelpCircle className="w-4 h-4 text-sky-400" />
+                      <HelpCircle className="w-4 h-4" />
                     </button>
                     <button
+                      type="button"
                       onClick={() => {
                         setCorrectingCandidate(candidate);
                         setCorrectionInput(candidate.text);
                       }}
-                      className="p-1.5 rounded-md hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+                      className="p-1.5 rounded-md hover:bg-surface-hover text-text-muted hover:text-amber-500 transition-colors"
                       title="Edit / Teach correction"
+                      aria-label="Teach correction"
                     >
-                      <Edit3 className="w-4 h-4 text-amber-400" />
+                      <Edit3 className="w-4 h-4" />
                     </button>
                     <button
+                      type="button"
                       onClick={() => handleOpenGlossaryModal(candidate)}
-                      className="p-1.5 rounded-md hover:bg-slate-700 text-slate-400 hover:text-emerald-400 transition-colors"
+                      className="p-1.5 rounded-md hover:bg-surface-hover text-text-muted hover:text-emerald-500 transition-colors"
                       title="Lưu thuật ngữ vào Glossary"
+                      aria-label="Add to glossary"
                     >
-                      <BookPlus className="w-4 h-4 text-emerald-400" />
+                      <BookPlus className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
 
-                <p className="text-slate-100 text-sm leading-relaxed whitespace-pre-wrap font-sans">
+                <p className="text-text-primary text-sm leading-relaxed whitespace-pre-wrap font-sans">
                   {candidate.text}
                 </p>
 
                 {candidate.reason && (
-                  <div className="mt-2.5 pt-2 border-t border-slate-800/80 text-[11px] text-slate-400 italic">
+                  <div className="mt-2.5 pt-2 border-t border-border-subtle text-[11px] text-text-muted italic">
                     Reason: {candidate.reason}
                   </div>
                 )}
@@ -569,436 +566,400 @@ export const TranslatorPage: React.FC<TranslatorPageProps> = ({
             ))}
 
             {!response && !isLoading && (
-              <div className="h-full min-h-[220px] flex flex-col items-center justify-center text-slate-500 text-center p-6">
-                <Sparkles className="w-8 h-8 mb-2 opacity-30 text-sky-400" />
-                <p className="text-xs font-medium">Ready to translate with project context and glossary.</p>
-                <p className="text-[11px] text-slate-600 mt-1">
-                  Type or paste Japanese text and press Translate.
-                </p>
-              </div>
+              <EmptyState
+                icon={<Sparkles className="w-6 h-6 text-primary" />}
+                title="Ready for Translation"
+                description="Input Japanese or Vietnamese text, select your desired style and provider, and execute translation."
+              />
             )}
           </div>
 
           {/* Applied Glossaries and TM tags */}
           {response && (
-            <div className="p-3 border-t border-slate-800 bg-slate-900/90 text-xs flex flex-wrap items-center gap-2">
-              <span className="text-[11px] text-slate-500 uppercase tracking-wider font-semibold">
+            <div className="p-3 border-t border-border-subtle bg-surface-subtle/50 text-xs flex flex-wrap items-center gap-2">
+              <span className="text-[11px] text-text-muted uppercase tracking-wider font-semibold">
                 Context Applied:
               </span>
               {response.used_glossary.map((g, i) => (
                 <span
                   key={i}
-                  className="px-2 py-0.5 rounded-md bg-emerald-950/60 border border-emerald-800/40 text-emerald-300 text-[11px] flex items-center gap-1 font-mono"
+                  className="px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[11px] flex items-center gap-1 font-mono"
                   title={`Glossary term: ${g.source_term} -> ${g.target_term}`}
                 >
-                  <BookOpen className="w-3 h-3 text-emerald-400" />
+                  <BookOpen className="w-3 h-3 text-emerald-500" />
                   {g.source_term} → {g.target_term}
                 </span>
               ))}
               {response.used_memory.map((m, i) => (
                 <span
                   key={i}
-                  className="px-2 py-0.5 rounded-md bg-indigo-950/60 border border-indigo-800/40 text-indigo-300 text-[11px] flex items-center gap-1 font-mono"
+                  className="px-2 py-0.5 rounded-md bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 text-[11px] flex items-center gap-1 font-mono"
                   title={`Translation memory similarity: ${m.similarity}`}
                 >
-                  <Layers className="w-3 h-3 text-indigo-400" />
+                  <Layers className="w-3 h-3 text-indigo-500" />
                   TM Match ({Math.round(m.similarity * 100)}%)
                 </span>
               ))}
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => handleOpenGlossaryModal()}
-                className="ml-auto px-2 py-0.5 rounded-md bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-[11px] font-medium flex items-center gap-1 transition-colors"
-                title="Thêm thuật ngữ mới vào Glossary"
+                className="ml-auto text-emerald-600 dark:text-emerald-400"
+                leftIcon={<BookPlus className="w-3 h-3" />}
               >
-                <BookPlus className="w-3 h-3 text-emerald-400" />
-                <span>+ Thêm thuật ngữ</span>
-              </button>
+                + Thêm thuật ngữ
+              </Button>
             </div>
           )}
         </div>
       </div>
 
-      {/* Explanation Drawer / Modal */}
-      {explainData && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-lg w-full p-5 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                <HelpCircle className="w-4 h-4 text-sky-400" />
-                Translation Explanation & Nuance
-              </h3>
-              <button
-                onClick={() => setExplainData(null)}
-                className="text-slate-400 hover:text-white text-xs"
-              >
-                ✕ Close
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs text-slate-300 max-h-[70vh] overflow-y-auto pr-1">
-              <div>
-                <span className="font-semibold text-slate-200 block mb-1">Summary:</span>
-                <p className="text-slate-300 bg-slate-850 p-2.5 rounded border border-slate-800">
-                  {explainData.summary}
-                </p>
-              </div>
-
-              {explainData.grammar_and_nuances && explainData.grammar_and_nuances.length > 0 && (
-                <div>
-                  <span className="font-semibold text-slate-200 block mb-1">Grammar & Business Nuances:</span>
-                  <ul className="list-disc list-inside space-y-1 bg-slate-850 p-2.5 rounded border border-slate-800">
-                    {explainData.grammar_and_nuances.map((n: string, i: number) => (
-                      <li key={i}>{n}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {explainData.technical_terms && explainData.technical_terms.length > 0 && (
-                <div>
-                  <span className="font-semibold text-slate-200 block mb-1">Technical Terminology:</span>
-                  <div className="space-y-1.5">
-                    {explainData.technical_terms.map((t: any, i: number) => (
-                      <div key={i} className="p-2 rounded bg-slate-850 border border-slate-800">
-                        <span className="font-semibold text-sky-400">{t.term}:</span> {t.explanation}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
+      {/* Explanation Modal */}
+      <Modal
+        isOpen={Boolean(explainData)}
+        onClose={() => setExplainData(null)}
+        title={
+          <div className="flex items-center gap-2">
+            <HelpCircle className="w-4 h-4 text-primary" />
+            <span>Translation Explanation & Nuance</span>
           </div>
-        </div>
-      )}
-
-      {/* Reply Drawer / Modal */}
-      {showReplyModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700/90 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                <MessageSquareReply className="w-4 h-4 text-sky-400" />
-                Reply Suggestion (Soạn phản hồi đối ứng khách hàng)
-              </h3>
-              <button
-                onClick={() => setShowReplyModal(false)}
-                className="text-slate-400 hover:text-white text-xs p-1"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Incoming Message Summary */}
-            <div className="p-2.5 rounded-lg bg-slate-950/70 border border-slate-800 text-xs">
-              <span className="text-[11px] font-semibold text-slate-400 block mb-1">
-                Tin nhắn nhận được từ khách (Incoming Message):
-              </span>
-              <p className="text-slate-300 line-clamp-2 italic font-mono text-[11px]">
-                "{sourceText}"
+        }
+        size="lg"
+      >
+        {explainData && (
+          <div className="space-y-4 text-xs text-text-secondary">
+            <div>
+              <span className="font-semibold text-text-primary block mb-1">Summary:</span>
+              <p className="text-text-primary bg-surface-subtle p-3 rounded-lg border border-border-subtle leading-relaxed">
+                {explainData.summary}
               </p>
             </div>
 
-            {/* User Reply Intent Field */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5 text-sky-400" />
-                  Ý chính bạn muốn trả lời (Your Reply Intent):
-                </label>
-                <span className="text-[10px] text-slate-400">Gõ tiếng Việt hoặc tiếng Nhật thô</span>
+            {explainData.grammar_and_nuances && explainData.grammar_and_nuances.length > 0 && (
+              <div>
+                <span className="font-semibold text-text-primary block mb-1">Grammar & Business Nuances:</span>
+                <ul className="list-disc list-inside space-y-1 bg-surface-subtle p-3 rounded-lg border border-border-subtle leading-relaxed">
+                  {explainData.grammar_and_nuances.map((n: string, i: number) => (
+                    <li key={i}>{n}</li>
+                  ))}
+                </ul>
               </div>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={userReplyIntent}
-                  onChange={(e) => setUserReplyIntent(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !isReplying) {
-                      e.preventDefault();
-                      handleGenerateReply();
-                    }
-                  }}
-                  placeholder="Ví dụ: Dự kiến 17h xong, do dev đang sửa API và test lại staging..."
-                  className="flex-1 bg-slate-850 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-sky-500"
-                />
-                <button
-                  onClick={handleGenerateReply}
-                  disabled={isReplying}
-                  className="px-3.5 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-medium flex items-center gap-1.5 transition whitespace-nowrap"
-                >
-                  {isReplying ? (
-                    <>
-                      <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      <span>Đang tạo...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Send className="w-3 h-3" />
-                      <span>Tạo câu trả lời</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
+            )}
 
-            {/* Reply Options List */}
-            <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
-              {isReplying && !replyData && (
-                <div className="py-8 flex flex-col items-center justify-center text-slate-400 gap-2">
-                  <div className="w-5 h-5 border-2 border-sky-400/30 border-t-sky-400 rounded-full animate-spin" />
-                  <span className="text-xs">AI đang soạn các phương án phản hồi bằng Business Keigo...</span>
-                </div>
-              )}
-
-              {replyData && replyData.options && (
-                replyData.options.map((opt: any, i: number) => (
-                  <div key={i} className="p-3.5 rounded-xl border border-slate-800 bg-slate-850/90 space-y-2 hover:border-slate-700 transition">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-semibold uppercase px-2 py-0.5 rounded bg-sky-950 text-sky-300 border border-sky-800/40">
-                        {opt.style}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => setEditingReplyIndex(editingReplyIndex === i ? null : i)}
-                          className="text-xs text-slate-400 hover:text-amber-400 flex items-center gap-1 p-1"
-                          title="Chỉnh sửa câu này"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" />
-                          <span>{editingReplyIndex === i ? 'Xong' : 'Sửa'}</span>
-                        </button>
-                        <button
-                          onClick={() => {
-                            navigator.clipboard.writeText(opt.text);
-                            toast.success('Đã sao chép phản hồi vào clipboard');
-                          }}
-                          className="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1 p-1 font-medium"
-                          title="Copy vào clipboard"
-                        >
-                          <Copy className="w-3.5 h-3.5" />
-                          <span>Copy</span>
-                        </button>
-                      </div>
+            {explainData.technical_terms && explainData.technical_terms.length > 0 && (
+              <div>
+                <span className="font-semibold text-text-primary block mb-1">Technical Terminology:</span>
+                <div className="space-y-1.5">
+                  {explainData.technical_terms.map((t: any, i: number) => (
+                    <div key={i} className="p-2.5 rounded-lg bg-surface-subtle border border-border-subtle">
+                      <span className="font-semibold text-primary">{t.term}:</span> {t.explanation}
                     </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
 
-                    {editingReplyIndex === i ? (
-                      <textarea
-                        value={opt.text}
-                        onChange={(e) => {
-                          const updated = [...replyData.options];
-                          updated[i] = { ...updated[i], text: e.target.value };
-                          setReplyData({ ...replyData, options: updated });
-                        }}
-                        className="w-full h-20 bg-slate-900 border border-sky-500 rounded p-2 text-xs text-slate-100 font-sans focus:outline-none"
-                      />
-                    ) : (
-                      <p className="text-xs text-slate-100 whitespace-pre-wrap leading-relaxed font-sans">
-                        {opt.text}
-                      </p>
-                    )}
+      {/* Reply Modal */}
+      <Modal
+        isOpen={showReplyModal}
+        onClose={() => setShowReplyModal(false)}
+        title={
+          <div className="flex items-center gap-2">
+            <MessageSquareReply className="w-4 h-4 text-primary" />
+            <span>Reply Suggestion (Soạn phản hồi đối ứng khách hàng)</span>
+          </div>
+        }
+        size="2xl"
+      >
+        <div className="space-y-4">
+          {/* Incoming Message Summary */}
+          <div className="p-3 rounded-lg bg-surface-subtle border border-border-subtle text-xs">
+            <span className="text-[11px] font-semibold text-text-muted block mb-1">
+              Tin nhắn nhận được từ khách (Incoming Message):
+            </span>
+            <p className="text-text-primary italic font-mono text-[11px] line-clamp-3">
+              "{sourceText}"
+            </p>
+          </div>
 
-                    {opt.notes && (
-                      <p className="text-[10px] text-slate-400 italic">When to use: {opt.notes}</p>
-                    )}
-                  </div>
-                ))
-              )}
+          {/* User Reply Intent Field */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-primary" />
+                Ý chính bạn muốn trả lời (Your Reply Intent):
+              </label>
+              <span className="text-[10px] text-text-muted">Gõ tiếng Việt hoặc tiếng Nhật thô</span>
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={userReplyIntent}
+                onChange={(e) => setUserReplyIntent(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !isReplying) {
+                    e.preventDefault();
+                    handleGenerateReply();
+                  }
+                }}
+                placeholder="Ví dụ: Dự kiến 17h xong, do dev đang sửa API và test lại staging..."
+                className="flex-1 bg-surface border border-border-default rounded-lg px-3 py-2 text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary"
+              />
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleGenerateReply}
+                disabled={isReplying}
+                isLoading={isReplying}
+                leftIcon={<Send className="w-3.5 h-3.5" />}
+              >
+                Tạo câu trả lời
+              </Button>
             </div>
           </div>
+
+          {/* Reply Options List */}
+          <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
+            {isReplying && !replyData && (
+              <div className="py-8 flex flex-col items-center justify-center text-text-muted gap-2">
+                <AiThinkingLoader mode="analyze" />
+                <span className="text-xs">AI đang soạn các phương án phản hồi bằng Business Keigo...</span>
+              </div>
+            )}
+
+            {replyData && replyData.options && (
+              replyData.options.map((opt: any, i: number) => (
+                <div key={i} className="p-3.5 rounded-xl border border-border-subtle bg-surface-subtle/50 space-y-2 hover:border-border-default transition-colors">
+                  <div className="flex items-center justify-between">
+                    <Badge variant="primary" size="sm">
+                      {opt.style}
+                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setEditingReplyIndex(editingReplyIndex === i ? null : i)}
+                        leftIcon={<Edit3 className="w-3 h-3" />}
+                      >
+                        {editingReplyIndex === i ? 'Xong' : 'Sửa'}
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          navigator.clipboard.writeText(opt.text);
+                          toast.success('Đã sao chép phản hồi vào clipboard');
+                        }}
+                        leftIcon={<Copy className="w-3 h-3 text-primary" />}
+                      >
+                        Copy
+                      </Button>
+                    </div>
+                  </div>
+
+                  {editingReplyIndex === i ? (
+                    <textarea
+                      value={opt.text}
+                      onChange={(e) => {
+                        const updated = [...replyData.options];
+                        updated[i] = { ...updated[i], text: e.target.value };
+                        setReplyData({ ...replyData, options: updated });
+                      }}
+                      className="w-full h-20 bg-surface border border-primary rounded-lg p-2 text-xs text-text-primary font-sans focus:outline-none"
+                    />
+                  ) : (
+                    <p className="text-xs text-text-primary whitespace-pre-wrap leading-relaxed font-sans">
+                      {opt.text}
+                    </p>
+                  )}
+
+                  {opt.notes && (
+                    <p className="text-[11px] text-text-muted italic">When to use: {opt.notes}</p>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
         </div>
-      )}
+      </Modal>
 
       {/* Correction Learning Modal */}
-      {correctingCandidate && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-lg w-full p-5 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                <Edit3 className="w-4 h-4 text-amber-400" />
-                Teach AI Correction (Continuous Learning)
-              </h3>
-              <button
-                onClick={() => setCorrectingCandidate(null)}
-                className="text-slate-400 hover:text-white text-xs"
-              >
-                ✕ Cancel
-              </button>
+      <Modal
+        isOpen={Boolean(correctingCandidate)}
+        onClose={() => setCorrectingCandidate(null)}
+        title={
+          <div className="flex items-center gap-2">
+            <Edit3 className="w-4 h-4 text-amber-500" />
+            <span>Teach AI Correction (Continuous Learning)</span>
+          </div>
+        }
+        size="lg"
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setCorrectingCandidate(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleSaveCorrection}
+              leftIcon={correctionSaved ? <Check className="w-3.5 h-3.5" /> : <BookmarkPlus className="w-3.5 h-3.5" />}
+            >
+              {correctionSaved ? 'Saved to TM & Knowledge!' : 'Save & Teach AI'}
+            </Button>
+          </>
+        }
+      >
+        {correctingCandidate && (
+          <div className="space-y-3.5 text-xs">
+            <div>
+              <label className="text-text-muted block mb-1 font-medium">Source Text:</label>
+              <div className="p-2.5 rounded-lg bg-surface-subtle text-text-primary border border-border-subtle">
+                {sourceText}
+              </div>
             </div>
 
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="text-slate-400 block mb-1">Source Text:</label>
-                <div className="p-2 rounded bg-slate-850 text-slate-300 border border-slate-800">
-                  {sourceText}
-                </div>
+            <div>
+              <label className="text-text-muted block mb-1 font-medium">Original AI Output:</label>
+              <div className="p-2.5 rounded-lg bg-surface-subtle text-text-muted border border-border-subtle line-through">
+                {correctingCandidate.text}
               </div>
+            </div>
 
-              <div>
-                <label className="text-slate-400 block mb-1">Original AI Output:</label>
-                <div className="p-2 rounded bg-slate-850 text-slate-400 border border-slate-800 line-through">
-                  {correctingCandidate.text}
-                </div>
-              </div>
+            <div>
+              <label className="text-text-primary font-semibold block mb-1">
+                Your Corrected / Preferred Translation:
+              </label>
+              <textarea
+                value={correctionInput}
+                onChange={(e) => setCorrectionInput(e.target.value)}
+                className="w-full h-24 bg-surface border border-border-default rounded-lg p-2.5 text-text-primary focus:outline-none focus:border-primary text-xs leading-relaxed"
+                placeholder="Enter the ideal translation..."
+              />
+            </div>
 
-              <div>
-                <label className="text-slate-200 font-semibold block mb-1">
-                  Your Corrected / Preferred Translation:
+            <div>
+              <label className="text-text-secondary font-medium block mb-1">Remember this correction:</label>
+              <div className="flex items-center gap-4 text-text-secondary">
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="scope"
+                    checked={correctionScope === 'project'}
+                    onChange={() => setCorrectionScope('project')}
+                  />
+                  <span>For this project only</span>
                 </label>
-                <textarea
-                  value={correctionInput}
-                  onChange={(e) => setCorrectionInput(e.target.value)}
-                  className="w-full h-24 bg-slate-850 border border-slate-700 rounded p-2.5 text-slate-100 focus:outline-none focus:border-amber-400 text-xs leading-relaxed"
-                  placeholder="Enter the ideal translation..."
-                />
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="scope"
+                    checked={correctionScope === 'global'}
+                    onChange={() => setCorrectionScope('global')}
+                  />
+                  <span>Globally for all projects</span>
+                </label>
               </div>
-
-              <div>
-                <label className="text-slate-300 font-medium block mb-1">Remember this correction:</label>
-                <div className="flex items-center gap-4 text-slate-300">
-                  <label className="flex items-center gap-1.5 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="scope"
-                      checked={correctionScope === 'project'}
-                      onChange={() => setCorrectionScope('project')}
-                    />
-                    <span>For this project only</span>
-                  </label>
-                  <label className="flex items-center gap-1.5 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="scope"
-                      checked={correctionScope === 'global'}
-                      onChange={() => setCorrectionScope('global')}
-                    />
-                    <span>Globally for all projects</span>
-                  </label>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
-              <button
-                onClick={() => setCorrectingCandidate(null)}
-                className="px-3 py-1.5 rounded bg-slate-800 text-slate-300 text-xs hover:bg-slate-700"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSaveCorrection}
-                className="px-4 py-1.5 rounded bg-amber-600 hover:bg-amber-500 text-white text-xs font-medium flex items-center gap-1.5"
-              >
-                {correctionSaved ? (
-                  <>
-                    <Check className="w-3.5 h-3.5" />
-                    Saved to TM & Knowledge!
-                  </>
-                ) : (
-                  <>
-                    <BookmarkPlus className="w-3.5 h-3.5" />
-                    Save & Teach AI
-                  </>
-                )}
-              </button>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </Modal>
 
       {/* Quick Add to Glossary Modal */}
-      {showGlossaryModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700/80 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                <BookPlus className="w-4 h-4 text-emerald-400" />
-                Thêm nhanh vào Glossary
-              </h3>
-              <button
-                onClick={() => setShowGlossaryModal(false)}
-                className="text-slate-400 hover:text-white text-xs p-1"
-              >
-                ✕
-              </button>
+      <Modal
+        isOpen={showGlossaryModal}
+        onClose={() => setShowGlossaryModal(false)}
+        title={
+          <div className="flex items-center gap-2">
+            <BookPlus className="w-4 h-4 text-emerald-500" />
+            <span>Thêm nhanh vào Glossary</span>
+          </div>
+        }
+        size="md"
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setShowGlossaryModal(false)}>
+              Hủy
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleSaveGlossary}
+              disabled={isSavingGlossary}
+              isLoading={isSavingGlossary}
+              leftIcon={<Check className="w-3.5 h-3.5" />}
+            >
+              Lưu vào Glossary
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3.5 text-xs">
+          <div>
+            <label className="text-text-secondary font-medium block mb-1.5 flex items-center justify-between">
+              <span>Source Term (Từ gốc tiếng Nhật):</span>
+              <span className="text-[10px] text-amber-500 font-mono">Bắt buộc</span>
+            </label>
+            <input
+              type="text"
+              value={glossarySource}
+              onChange={(e) => setGlossarySource(e.target.value)}
+              placeholder="Ví dụ: 解約, 認証, 本番環境..."
+              className="w-full bg-surface border border-border-default rounded-lg p-2.5 text-text-primary focus:outline-none focus:border-primary text-xs"
+            />
+          </div>
+
+          <div>
+            <label className="text-text-secondary font-medium block mb-1.5 flex items-center justify-between">
+              <span>Target Term (Nghĩa dịch chuẩn):</span>
+              <span className="text-[10px] text-amber-500 font-mono">Bắt buộc</span>
+            </label>
+            <input
+              type="text"
+              value={glossaryTarget}
+              onChange={(e) => setGlossaryTarget(e.target.value)}
+              placeholder="Ví dụ: Chấm dứt hợp đồng, Authentication..."
+              className="w-full bg-surface border border-border-default rounded-lg p-2.5 text-text-primary focus:outline-none focus:border-primary text-xs"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-text-secondary font-medium block mb-1.5">Danh mục:</label>
+              <Select
+                value={glossaryCategory}
+                onChange={(val) => setGlossaryCategory(val)}
+                size="sm"
+                className="w-full"
+                options={[
+                  { value: 'IT', label: 'Kỹ thuật IT' },
+                  { value: 'UI', label: 'Giao diện UI' },
+                  { value: 'Banking', label: 'Tài chính' },
+                  { value: 'Business', label: 'Nghiệp vụ' },
+                  { value: 'General', label: 'Chung' },
+                ]}
+              />
             </div>
 
-            <div className="space-y-3.5 text-xs">
-              <div>
-                <label className="text-slate-300 font-medium block mb-1.5 flex items-center justify-between">
-                  <span>Source Term (Từ gốc tiếng Nhật):</span>
-                  <span className="text-[10px] text-amber-400/80 font-mono">Bắt buộc</span>
-                </label>
-                <input
-                  type="text"
-                  value={glossarySource}
-                  onChange={(e) => setGlossarySource(e.target.value)}
-                  placeholder="Ví dụ: 解約, 認証, 本番環境..."
-                  className="w-full bg-slate-850 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:outline-none focus:border-emerald-500 text-xs"
-                />
-              </div>
-
-              <div>
-                <label className="text-slate-300 font-medium block mb-1.5 flex items-center justify-between">
-                  <span>Target Term (Nghĩa dịch chuẩn):</span>
-                  <span className="text-[10px] text-amber-400/80 font-mono">Bắt buộc</span>
-                </label>
-                <input
-                  type="text"
-                  value={glossaryTarget}
-                  onChange={(e) => setGlossaryTarget(e.target.value)}
-                  placeholder="Ví dụ: Chấm dứt hợp đồng, Authentication..."
-                  className="w-full bg-slate-850 border border-slate-700 rounded-lg p-2.5 text-slate-100 focus:outline-none focus:border-emerald-500 text-xs"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-slate-300 font-medium block mb-1.5">Category:</label>
-                  <select
-                    value={glossaryCategory}
-                    onChange={(e) => setGlossaryCategory(e.target.value)}
-                    className="w-full bg-slate-850 border border-slate-700 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-emerald-500 text-xs"
-                  >
-                    <option value="IT">IT / Kỹ thuật</option>
-                    <option value="UI">UI / Màn hình</option>
-                    <option value="Banking">Banking / Tài chính</option>
-                    <option value="Business">Business / Nghiệp vụ</option>
-                    <option value="General">General / Chung</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-slate-300 font-medium block mb-1.5">Scope (Phạm vi):</label>
-                  <select
-                    value={glossaryScope}
-                    onChange={(e) => setGlossaryScope(e.target.value as 'project' | 'global')}
-                    className="w-full bg-slate-850 border border-slate-700 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-emerald-500 text-xs"
-                  >
-                    <option value="project">Project {activeProject ? `(${activeProject.name})` : ''}</option>
-                    <option value="global">Global (Mọi dự án)</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800">
-              <button
-                onClick={() => setShowGlossaryModal(false)}
-                className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition"
-              >
-                Hủy
-              </button>
-              <button
-                onClick={handleSaveGlossary}
-                disabled={isSavingGlossary}
-                className="px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-medium flex items-center gap-1.5 transition"
-              >
-                <Check className="w-3.5 h-3.5" />
-                <span>{isSavingGlossary ? 'Đang lưu...' : 'Lưu vào Glossary'}</span>
-              </button>
+            <div>
+              <label className="text-text-secondary font-medium block mb-1.5">Phạm vi:</label>
+              <Select
+                value={glossaryScope}
+                onChange={(val) => setGlossaryScope(val as 'project' | 'global')}
+                size="sm"
+                className="w-full"
+                options={[
+                  { value: 'project', label: activeProject ? activeProject.name : 'Dự án' },
+                  { value: 'global', label: 'Toàn cục (Global)' },
+                ]}
+              />
             </div>
           </div>
         </div>
-      )}
+      </Modal>
     </div>
   );
 };

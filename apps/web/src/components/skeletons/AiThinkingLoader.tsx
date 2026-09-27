@@ -45,33 +45,33 @@ export const AiThinkingLoader: React.FC<AiThinkingLoaderProps> = ({
 
   return (
     <div
-      className={`ai-glow-card rounded-xl p-5 bg-slate-900/90 border border-sky-500/40 backdrop-blur-xl relative overflow-hidden space-y-4 shadow-xl shadow-sky-950/30 ${className}`}
+      className={`ai-glow-card rounded-xl p-5 bg-surface-elevated border border-brand-primary/30 relative overflow-hidden space-y-4 shadow-lg shadow-brand-primary/5 ${className}`}
     >
       {/* Ambient background light sweep */}
-      <div className="absolute inset-0 pointer-events-none opacity-20 bg-gradient-to-r from-transparent via-sky-500/20 to-indigo-500/20 animate-pulse" />
+      <div className="absolute inset-0 pointer-events-none opacity-20 bg-gradient-to-r from-transparent via-sky-500/10 to-indigo-500/10 animate-pulse" />
 
       {/* Header with animated neon badge & pulsing status */}
-      <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+      <div className="flex items-center justify-between border-b border-border-subtle pb-3">
         <div className="flex items-center gap-2.5">
-          <div className="relative flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-tr from-sky-500/20 to-indigo-500/30 border border-sky-400/40 text-sky-400 shadow-md shadow-sky-500/20">
+          <div className="relative flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-tr from-sky-500/20 to-indigo-500/30 border border-sky-400/40 text-brand-primary shadow-md shadow-brand-primary/20">
             <Sparkles className="w-4 h-4 animate-spin [animation-duration:4s]" />
             <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-sky-500" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-brand-primary" />
             </span>
           </div>
           <div>
-            <div className="text-xs font-bold uppercase tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-sky-400 via-indigo-300 to-emerald-400 flex items-center gap-1.5">
+            <div className="text-xs font-bold uppercase tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-brand-primary via-indigo-500 to-emerald-500 flex items-center gap-1.5">
               {title || (mode === 'translate' ? 'AI Translation Reasoning' : 'BrSE Intelligence Engine')}
             </div>
-            <p className="text-[11px] text-slate-400 font-mono transition-opacity duration-300">
+            <p className="text-[11px] text-text-secondary font-mono transition-opacity duration-300">
               {messages[msgIndex]}
             </p>
           </div>
         </div>
 
-        <div className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-slate-800/80 border border-slate-700/60 text-[10px] text-slate-300 font-mono">
-          <Cpu className="w-3 h-3 text-sky-400 animate-pulse" />
+        <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-surface-subtle border border-border-subtle text-[10px] text-text-secondary font-mono">
+          <Cpu className="w-3 h-3 text-brand-primary animate-pulse" />
           <span>Neural Engine Active</span>
         </div>
       </div>

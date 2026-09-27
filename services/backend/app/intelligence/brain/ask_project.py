@@ -1,7 +1,7 @@
 import json
 import re
 from typing import Dict, List, Any, Optional
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import logger
@@ -165,6 +165,207 @@ class AskProjectEngine:
                     f"• [{ev.source_type.upper()}] ({ev.author or 'Team'}, {ev.timestamp or 'Gần đây'}): \"{ev.quote_text[:150]}\""
                 )
             knowledge_sections.append("\n".join(ev_lines))
+
+        # --- C2. QA WORKSPACE KNOWLEDGE (findings, questions, AC, test cases, coverage) ---
+        if scope in ("all", "qa", "work_items"):
+            try:
+                from app.qa.models import (
+                    QAFinding, QAOpenQuestion, AcceptanceCriterion, TestCase, RequirementCoverage,
+                )
+                qa_lines = ["### [NGUỒN QA WORKSPACE] REVIEW / CLARIFICATION / TEST COVERAGE:"]
+                req_items = [w for w in work_items_all if w.item_type == "REQUIREMENT"][:30]
+                if req_items:
+                    req_ids = [r.id for r in req_items]
+                    cov_rows = (await db.execute(
+                        select(RequirementCoverage).where(RequirementCoverage.requirement_id.in_(req_ids))
+                    )).scalars().all()
+                    cov_by_req = {c.requirement_id: c.status for c in cov_rows}
+                    for r in req_items[:15]:
+                        code = getattr(r, "req_code", None) or r.id[:6]
+                        qa_lines.append(
+                            f"• [{code}] {r.title} | Coverage: {cov_by_req.get(r.id, 'NotReviewed')}"
+                        )
+                    f_rows = (await db.execute(
+                        select(QAFinding).where(QAFinding.requirement_id.in_(req_ids),
+                                               QAFinding.status == "OPEN").limit(10)
+                    )).scalars().all()
+                    for f in f_rows:
+                        qa_lines.append(
+                            f"  * [FINDING] {f.title} ({f.finding_type}/{f.severity}) — {f.description[:120]}"
+                        )
+                    q_rows = (await db.execute(
+                        select(QAOpenQuestion).where(QAOpenQuestion.requirement_id.in_(req_ids),
+                                                    QAOpenQuestion.status.in_(["DRAFT", "APPROVED"])).limit(10)
+                    )).scalars().all()
+                    for q in q_rows:
+                        qa_lines.append(f"  * [OPEN QUESTION] {q.question_vi[:120]} (trạng thái: {q.status})")
+                    tc_rows = (await db.execute(
+                        select(TestCase).where(TestCase.requirement_id.in_(req_ids)).limit(15)
+                    )).scalars().all()
+                    for tc in tc_rows:
+                        qa_lines.append(
+                            f"  * [TESTCASE {tc.tc_code}] {tc.title} ({tc.case_type}/{tc.status})"
+                        )
+                    ac_rows = (await db.execute(
+                        select(AcceptanceCriterion).where(
+                            AcceptanceCriterion.requirement_id.in_(req_ids)).limit(15)
+                    )).scalars().all()
+                    for a in ac_rows:
+                        qa_lines.append(
+                            f"  * [AC {a.ac_code}] Given {a.given_text[:80]} When {a.when_text[:80]} "
+                            f"Then {a.then_text[:80]} ({a.status})"
+                        )
+                else:
+                    qa_lines.append("- (Chưa có requirement nào trong QA Workspace)")
+                # --- C3. PHASE 2: test runs, executions, bugs, reports ---
+                try:
+                    from app.qa.execution_models import TestRun as _TR, TestExecution as _TE
+                    stmt_r = select(_TR).order_by(_TR.created_at.desc()).limit(8)
+                    if effective_pid:
+                        stmt_r = stmt_r.where(_TR.project_id == effective_pid)
+                    run_rows = (await db.execute(stmt_r)).scalars().all()
+                    for r in run_rows:
+                        prog = (await db.execute(
+                            select(_TE.status).where(_TE.test_run_id == r.id))).all()
+                        counts = {}
+                        for (s,) in prog:
+                            counts[s] = counts.get(s, 0) + 1
+                        qa_lines.append(
+                            f"• [TESTRUN {r.run_code}] {r.name} (build {r.version_build or '—'}, "
+                            f"{r.environment or '—'}, {r.status}): " +
+                            ", ".join(f"{k}={v}" for k, v in sorted(counts.items()))
+                        )
+                    bug_stmt = select(WorkItem).where(WorkItem.item_type == "BUG").order_by(
+                        WorkItem.created_at.desc()).limit(12)
+                    if effective_pid:
+                        bug_stmt = bug_stmt.where(WorkItem.project_id == effective_pid)
+                    bug_rows = (await db.execute(bug_stmt)).scalars().all()
+                    for b in bug_rows:
+                        qa_lines.append(
+                            f"  * [BUG {b.req_code or b.id[:6]}] {b.title} "
+                            f"(trạng thái: {b.status}, độ ưu tiên: {b.priority})"
+                        )
+                except Exception as qa2_err:
+                    logger.warning(f"QA Phase 2 knowledge hook unavailable: {qa2_err}")
+                # --- C4. PHASE 3: API catalog, environments, API test results ---
+                try:
+                    from app.qa.api_models import APIEndpoint as _EP, APITestConfig as _CFG
+                    from app.qa.models import TestCase as _TC
+                    ep_stmt = select(_EP).order_by(_EP.path).limit(40)
+                    if effective_pid:
+                        ep_stmt = ep_stmt.where(_EP.project_id == effective_pid)
+                    ep_rows = (await db.execute(ep_stmt)).scalars().all()
+                    for e in ep_rows:
+                        cfg_ids = (await db.execute(select(_CFG.test_case_id).where(
+                            _CFG.endpoint_id == e.id))).scalars().all()
+                        last = None
+                        if cfg_ids:
+                            last = (await db.execute(select(_TE).where(
+                                _TE.test_case_id.in_(cfg_ids)).order_by(
+                                _TE.updated_at.desc()).limit(1))).scalars().first()
+                        qa_lines.append(
+                            f"• [API {e.method} {e.path}] {e.name or ''} | "
+                            f"cases: {len(cfg_ids)} | "
+                            f"last: {last.status if last else 'Not Tested yet'}"
+                        )
+                    if ep_rows:
+                        unauth_missing = []
+                        for e in ep_rows:
+                            if e.auth_type != "none":
+                                cfgs = (await db.execute(select(_CFG.test_case_id).where(
+                                    _CFG.endpoint_id == e.id))).scalars().all()
+                                if cfgs:
+                                    cats = (await db.execute(select(_TC.case_type).where(
+                                        _TC.id.in_(cfgs)))).scalars().all()
+                                    if not any("uth" in (c or "") or "ermission" in (c or "") for c in cats):
+                                        unauth_missing.append(f"{e.method} {e.path}")
+                        if unauth_missing:
+                            qa_lines.append(
+                                "  * [API GAP] Missing unauthorized test: " + ", ".join(unauth_missing[:8]))
+                except Exception as qa3_err:
+                    logger.warning(f"QA Phase 3 knowledge hook unavailable: {qa3_err}")
+                # --- C5. PHASE 4: UI automation scripts, results, flaky ---
+                try:
+                    from app.qa.ui_models import UIAutomationScript as _US
+                    us_stmt = select(_US).join(_TC, _TC.id == _US.test_case_id).order_by(
+                        _TC.updated_at.desc()).limit(30)
+                    if effective_pid:
+                        us_stmt = us_stmt.where(_TC.project_id == effective_pid)
+                    us_rows = (await db.execute(us_stmt)).scalars().all()
+                    for s in us_rows:
+                        tc = (await db.execute(select(_TC).where(
+                            _TC.id == s.test_case_id))).scalars().first()
+                        last = (await db.execute(select(_TE).where(
+                            _TE.test_case_id == s.test_case_id).order_by(
+                            _TE.updated_at.desc()).limit(1))).scalars().first()
+                        flags = []
+                        if s.flaky_flag:
+                            flags.append("Potentially Flaky")
+                        if s.status == "NEEDS_UPDATE":
+                            flags.append("Needs Update")
+                        qa_lines.append(
+                            f"• [UI-AUTO {tc.tc_code if tc else ''}] {tc.title if tc else ''} | "
+                            f"script: {s.status} | "
+                            f"last: {last.status if last else 'Not Run yet'}"
+                            + (f" ({', '.join(flags)})" if flags else "")
+                        )
+                except Exception as qa4_err:
+                    logger.warning(f"QA Phase 4 knowledge hook unavailable: {qa4_err}")
+                # --- C6. PHASE 5: changes, risks, regression plans ---
+                try:
+                    from app.qa.regression_models import ChangeRecord as _CR, RegressionPlan as _RP
+                    ch_stmt = select(_CR).order_by(_CR.created_at.desc()).limit(10)
+                    if effective_pid:
+                        ch_stmt = ch_stmt.where(_CR.project_id == effective_pid)
+                    ch_rows = (await db.execute(ch_stmt)).scalars().all()
+                    for ch in ch_rows:
+                        qa_lines.append(
+                            f"• [CHANGE {ch.change_code}] {ch.source} | "
+                            f"risk: {ch.risk_level} | status: {ch.status} | "
+                            f"{(ch.change_summary or '')[:120]}"
+                        )
+                    pl_stmt = select(_RP).order_by(_RP.created_at.desc()).limit(5)
+                    if effective_pid:
+                        pl_stmt = pl_stmt.where(_RP.project_id == effective_pid)
+                    pl_rows = (await db.execute(pl_stmt)).scalars().all()
+                    for pl in pl_rows:
+                        qa_lines.append(
+                            f"  * [REGRESSION {pl.plan_code}] {pl.status} | "
+                            f"release: {pl.release_tag or '—'} | "
+                            f"run: {pl.test_run_id or 'not created yet'}"
+                        )
+                except Exception as qa5_err:
+                    logger.warning(f"QA Phase 5 knowledge hook unavailable: {qa5_err}")
+                # --- C7. PHASE 6: data QA jobs, rules, open differences ---
+                try:
+                    from app.qa.data_models import DataQaJob as _DJ, DataDifference as _DD, DataQualityRule as _DR
+                    dj_stmt = select(_DJ).order_by(_DJ.created_at.desc()).limit(10)
+                    if effective_pid:
+                        dj_stmt = dj_stmt.where(_DJ.project_id == effective_pid)
+                    dj_rows = (await db.execute(dj_stmt)).scalars().all()
+                    for j in dj_rows:
+                        open_n = (await db.execute(select(func.count(_DD.id)).where(
+                            _DD.job_id == j.id, _DD.status == "OPEN"))).scalar() or 0
+                        qa_lines.append(
+                            f"• [DATA-JOB {j.job_code}] {j.name} | "
+                            f"status: {j.status} | open differences: {open_n} | "
+                            f"build: {j.build or '—'}"
+                        )
+                    if dj_rows:
+                        jids = [j.id for j in dj_rows]
+                        bad_rules = (await db.execute(select(_DR).where(
+                            _DR.job_id.in_(jids), _DR.status == "DRAFT")).limit(5)
+                        ).scalars().all()
+                        for r in bad_rules:
+                            qa_lines.append(
+                                f"  * [DATA-RULE DRAFT] {r.rule_type} "
+                                f"(job {r.job_id[:6] if r.job_id else '—'})"
+                            )
+                except Exception as qa6_err:
+                    logger.warning(f"QA Phase 6 knowledge hook unavailable: {qa6_err}")
+                knowledge_sections.append("\n".join(qa_lines))
+            except Exception as qa_err:
+                logger.warning(f"QA knowledge hook unavailable: {qa_err}")
 
         # --- D. PROJECT DOCUMENTS RAG (TOKEN-SAFE CHUNKS ACROSS 20-100+ FILES) ---
         rag_citations = []

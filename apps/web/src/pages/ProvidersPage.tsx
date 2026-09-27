@@ -12,11 +12,18 @@ import {
   ChevronDown,
   ChevronUp,
   Layers,
-  Sparkles
+  Sparkles,
+  Server
 } from 'lucide-react';
 import { apiClient } from '../api/client';
 import { ProviderInfo } from '../types';
 import { useToast } from '../context/ToastContext';
+import { PageHeader } from '../components/ui/PageHeader';
+import { Card } from '../components/ui/Card';
+import { Button } from '../components/ui/Button';
+import { Badge } from '../components/ui/Badge';
+import { Input } from '../components/ui/Input';
+import { Select } from '../components/ui/Select';
 
 export const ProvidersPage: React.FC = () => {
   const toast = useToast();
@@ -121,28 +128,21 @@ export const ProvidersPage: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-screen overflow-y-auto bg-slate-950 p-6 space-y-6">
+    <div className="flex-1 flex flex-col h-screen overflow-y-auto bg-canvas p-6 space-y-6">
       {/* Header with Global Refresh Button */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <Cpu className="w-5 h-5 text-sky-400" />
-            AI Providers & Live Model Discovery
-          </h2>
-          <p className="text-xs text-slate-400">
-            Dynamically discover and configure 100% of models available from Google Gemini, Groq, and Ollama APIs.
-          </p>
-        </div>
-
-        <button
-          onClick={handleRefreshAll}
-          disabled={isRefreshingAll}
-          className="px-3.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-sky-600/20 disabled:opacity-50"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingAll ? 'animate-spin' : ''}`} />
-          {isRefreshingAll ? 'Querying APIs...' : 'Scan All Live Models'}
-        </button>
-      </div>
+      <PageHeader
+        title="Mô hình AI"
+        actions={
+          <Button
+            variant="primary"
+            onClick={handleRefreshAll}
+            disabled={isRefreshingAll}
+            leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${isRefreshingAll ? 'animate-spin' : ''}`} />}
+          >
+            {isRefreshingAll ? 'Đang quét...' : 'Quét mô hình'}
+          </Button>
+        }
+      />
 
       {/* Provider Cards */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -155,56 +155,55 @@ export const ProvidersPage: React.FC = () => {
           const modelsList = prov.available_models || [];
 
           return (
-            <div
+            <Card
               key={prov.id}
-              className="rounded-xl border border-slate-800 bg-slate-900/60 shadow-lg p-5 flex flex-col justify-between space-y-4"
+              className="p-5 flex flex-col justify-between space-y-4 border border-border-subtle bg-surface shadow-sm"
             >
               {/* Card Header */}
               <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                    {prov.display_name}
-                  </h3>
-                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded flex items-center gap-1 ${
-                    prov.is_healthy
-                      ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/40'
-                      : 'bg-slate-800 text-slate-400 border border-slate-700'
-                  }`}>
-                    {prov.is_healthy ? (
-                      <>
-                        <CheckCircle2 className="w-3 h-3 text-emerald-400" /> Connected
-                      </>
-                    ) : (
-                      <>
-                        <AlertCircle className="w-3 h-3 text-slate-400" /> Needs Refresh
-                      </>
-                    )}
-                  </span>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center font-bold">
+                      <Cpu className="w-4 h-4" />
+                    </div>
+                    <h3 className="text-sm font-bold text-text-primary">
+                      {prov.display_name}
+                    </h3>
+                  </div>
+                  {prov.is_healthy ? (
+                    <Badge variant="success" size="sm" className="flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" /> Connected
+                    </Badge>
+                  ) : (
+                    <Badge variant="neutral" size="sm" className="flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3 text-text-muted" /> Needs Refresh
+                    </Badge>
+                  )}
                 </div>
 
-                <div className="text-[11px] text-slate-400 flex items-center justify-between">
+                <div className="text-[11px] text-text-muted flex items-center justify-between pt-1">
                   <span>{prov.name === 'ollama' ? 'Local offline engine' : 'Cloud provider adapter'}</span>
-                  <span className="font-mono text-sky-400 text-[10px] bg-sky-950/60 px-1.5 py-0.2 rounded border border-sky-800/40">
+                  <Badge variant="info" size="sm" className="font-mono text-[10px]">
                     {modelsList.length} models fetched
-                  </span>
+                  </Badge>
                 </div>
               </div>
 
               {/* Form Inputs */}
-              <div className="space-y-3 text-xs">
+              <div className="space-y-3.5 text-xs">
                 {/* API Key */}
                 {prov.name !== 'ollama' && (
                   <div>
-                    <label className="text-slate-300 font-medium block mb-1 flex items-center justify-between">
+                    <label className="text-text-secondary font-medium block mb-1 flex items-center justify-between">
                       <span className="flex items-center gap-1">
-                        <KeyRound className="w-3 h-3 text-slate-400" />
+                        <KeyRound className="w-3 h-3 text-text-muted" />
                         API Key:
                       </span>
-                      <span className="font-mono text-slate-500 text-[10px]">
+                      <span className="font-mono text-text-muted text-[10px]">
                         {prov.api_key_masked || 'None'}
                       </span>
                     </label>
-                    <input
+                    <Input
                       type="password"
                       value={form.api_key}
                       onChange={(e) => setEditForms(prev => ({
@@ -212,7 +211,7 @@ export const ProvidersPage: React.FC = () => {
                         [prov.name]: { ...prev[prov.name], api_key: e.target.value }
                       }))}
                       placeholder="Paste new key to replace..."
-                      className="w-full bg-slate-850 border border-slate-700 rounded px-2.5 py-1.5 text-slate-100 focus:outline-none focus:border-sky-500 font-mono text-[11px]"
+                      className="font-mono text-[11px]"
                     />
                   </div>
                 )}
@@ -220,25 +219,25 @@ export const ProvidersPage: React.FC = () => {
                 {/* Base URL (for Ollama) */}
                 {prov.name === 'ollama' && (
                   <div>
-                    <label className="text-slate-300 font-medium block mb-1">Base Endpoint:</label>
-                    <input
+                    <label className="text-text-secondary font-medium block mb-1">Base Endpoint:</label>
+                    <Input
                       type="text"
                       disabled
                       value={prov.base_url || 'http://127.0.0.1:11434'}
-                      className="w-full bg-slate-850 border border-slate-800 rounded px-2.5 py-1.5 text-slate-400 font-mono text-[11px] cursor-not-allowed"
+                      className="font-mono text-[11px] opacity-75 cursor-not-allowed"
                     />
                   </div>
                 )}
 
-                {/* Default Model Dropdown (Dynamic from 100% of API Models) */}
+                {/* Default Model Dropdown */}
                 <div>
                   <div className="flex items-center justify-between mb-1">
-                    <label className="text-slate-300 font-medium">Selected Model:</label>
+                    <label className="text-text-secondary font-medium">Selected Model:</label>
                     <button
                       type="button"
                       onClick={() => handleRefreshModels(prov.name)}
                       disabled={isRefreshing}
-                      className="text-[10px] text-sky-400 hover:text-sky-300 flex items-center gap-1 disabled:opacity-50"
+                      className="text-[10px] text-primary hover:underline flex items-center gap-1 disabled:opacity-50 font-medium"
                       title="Fetch live models directly from API"
                     >
                       <RefreshCw className={`w-2.5 h-2.5 ${isRefreshing ? 'animate-spin' : ''}`} />
@@ -247,42 +246,38 @@ export const ProvidersPage: React.FC = () => {
                   </div>
 
                   {modelsList.length > 0 ? (
-                    <select
+                    <Select
                       value={form.default_model}
-                      onChange={(e) => setEditForms(prev => ({
+                      onChange={(val) => setEditForms(prev => ({
                         ...prev,
-                        [prov.name]: { ...prev[prov.name], default_model: e.target.value }
+                        [prov.name]: { ...prev[prov.name], default_model: val }
                       }))}
-                      className="w-full bg-slate-850 border border-slate-700 rounded px-2.5 py-1.5 text-slate-100 font-mono text-[11px] focus:outline-none focus:border-sky-500"
-                    >
-                      {/* If current default_model is not in the list, keep it as an option */}
-                      {!modelsList.includes(form.default_model) && (
-                        <option value={form.default_model}>{form.default_model} (Custom)</option>
-                      )}
-                      {modelsList.map((m) => (
-                        <option key={m} value={m}>
-                          {m}
-                        </option>
-                      ))}
-                    </select>
+                      size="sm"
+                      className="w-full"
+                      triggerClassName="font-mono text-[11px]"
+                      options={[
+                        ...(!modelsList.includes(form.default_model) && form.default_model ? [{ value: form.default_model, label: `${form.default_model} (Custom)` }] : []),
+                        ...modelsList.map((m) => ({ value: m, label: m }))
+                      ]}
+                    />
                   ) : (
-                    <input
+                    <Input
                       type="text"
                       value={form.default_model}
                       onChange={(e) => setEditForms(prev => ({
                         ...prev,
                         [prov.name]: { ...prev[prov.name], default_model: e.target.value }
                       }))}
-                      placeholder="Click Refresh Models to fetch from API..."
-                      className="w-full bg-slate-850 border border-slate-700 rounded px-2.5 py-1.5 text-slate-100 font-mono text-[11px] focus:outline-none focus:border-sky-500"
+                      placeholder="Nhấp Làm mới để tải danh sách mô hình..."
+                      className="font-mono text-[11px]"
                     />
                   )}
                 </div>
 
                 {/* Priority */}
                 <div>
-                  <label className="text-slate-300 font-medium block mb-1">Router Priority (1 = Primary):</label>
-                  <input
+                  <label className="text-text-secondary font-medium block mb-1">Độ ưu tiên Router (1 = Cao nhất):</label>
+                  <Input
                     type="number"
                     min={1}
                     max={10}
@@ -291,7 +286,7 @@ export const ProvidersPage: React.FC = () => {
                       ...prev,
                       [prov.name]: { ...prev[prov.name], priority: Number(e.target.value) }
                     }))}
-                    className="w-20 bg-slate-850 border border-slate-700 rounded px-2.5 py-1 text-slate-100 font-mono text-[11px] focus:outline-none focus:border-sky-500"
+                    className="w-24 font-mono text-[11px]"
                   />
                 </div>
 
@@ -301,17 +296,17 @@ export const ProvidersPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setExpandedModels(prev => ({ ...prev, [prov.name]: !prev[prov.name] }))}
-                      className="text-[11px] text-slate-400 hover:text-slate-200 flex items-center justify-between w-full py-1 border-t border-slate-800/80"
+                      className="text-[11px] text-text-muted hover:text-text-primary flex items-center justify-between w-full py-1.5 border-t border-border-subtle transition"
                     >
-                      <span className="flex items-center gap-1">
-                        <Layers className="w-3 h-3 text-sky-400" />
-                        All Fetched Models ({modelsList.length})
+                      <span className="flex items-center gap-1.5 font-medium">
+                        <Layers className="w-3.5 h-3.5 text-primary" />
+                        Danh sách mô hình ({modelsList.length})
                       </span>
-                      {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                      {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                     </button>
 
                     {isExpanded && (
-                      <div className="mt-1 p-2 bg-slate-950/80 rounded border border-slate-800 max-h-36 overflow-y-auto space-y-1 font-mono text-[10px] text-slate-300">
+                      <div className="mt-1 p-2 bg-surface-elevated/70 rounded-lg border border-border-subtle max-h-36 overflow-y-auto space-y-1 font-mono text-[10px] text-text-secondary">
                         {modelsList.map((m) => (
                           <div
                             key={m}
@@ -319,13 +314,13 @@ export const ProvidersPage: React.FC = () => {
                               ...prev,
                               [prov.name]: { ...prev[prov.name], default_model: m }
                             }))}
-                            className={`p-1 rounded cursor-pointer transition-colors ${
+                            className={`p-1.5 rounded cursor-pointer transition-colors ${
                               form.default_model === m
-                                ? 'bg-sky-950 text-sky-300 font-bold border border-sky-800/50'
-                                : 'hover:bg-slate-800 text-slate-400 hover:text-white'
+                                ? 'bg-primary/10 text-primary font-bold border border-primary/30'
+                                : 'hover:bg-surface-elevated text-text-muted hover:text-text-primary'
                             }`}
                           >
-                            {m} {form.default_model === m ? '✓ (Selected)' : ''}
+                            {m} {form.default_model === m ? '✓ (Đang chọn)' : ''}
                           </div>
                         ))}
                       </div>
@@ -335,10 +330,10 @@ export const ProvidersPage: React.FC = () => {
 
                 {/* Live Test Results Alert */}
                 {test && (
-                  <div className={`p-2.5 rounded text-[11px] font-mono ${
+                  <div className={`p-2.5 rounded-lg text-[11px] font-mono border ${
                     test.is_healthy
-                      ? 'bg-emerald-950/60 border border-emerald-800/40 text-emerald-300'
-                      : 'bg-rose-950/60 border border-rose-800/40 text-rose-300'
+                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500'
+                      : 'bg-danger/10 border-danger/30 text-danger'
                   }`}>
                     {test.is_healthy ? (
                       <div>✓ {test.message}</div>
@@ -350,32 +345,27 @@ export const ProvidersPage: React.FC = () => {
               </div>
 
               {/* Action Buttons */}
-              <div className="flex items-center justify-between pt-3 border-t border-slate-800">
-                <button
+              <div className="flex items-center justify-between pt-3 border-t border-border-subtle gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
                   onClick={() => handleTestConnection(prov.name)}
                   disabled={isTesting}
-                  className="px-3 py-1.5 rounded bg-slate-850 hover:bg-slate-800 text-slate-300 text-xs font-medium flex items-center gap-1.5 border border-slate-700 disabled:opacity-50"
+                  leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${isTesting ? 'animate-spin text-primary' : ''}`} />}
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isTesting ? 'animate-spin text-sky-400' : ''}`} />
-                  {isTesting ? 'Testing...' : 'Test Connection'}
-                </button>
+                  {isTesting ? 'Đang thử...' : 'Kiểm tra ping'}
+                </Button>
 
-                <button
+                <Button
+                  variant="primary"
+                  size="sm"
                   onClick={() => handleSave(prov.name)}
-                  className="px-3 py-1.5 rounded bg-sky-600 hover:bg-sky-500 text-white text-xs font-medium flex items-center gap-1.5 shadow"
+                  leftIcon={savedSuccess === prov.name ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
                 >
-                  {savedSuccess === prov.name ? (
-                    <>
-                      <CheckCircle2 className="w-3.5 h-3.5" /> Saved!
-                    </>
-                  ) : (
-                    <>
-                      <Save className="w-3.5 h-3.5" /> Save
-                    </>
-                  )}
-                </button>
+                  {savedSuccess === prov.name ? 'Đã lưu' : 'Lưu cấu hình'}
+                </Button>
               </div>
-            </div>
+            </Card>
           );
         })}
       </div>

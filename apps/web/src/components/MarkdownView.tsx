@@ -17,13 +17,13 @@ const renderInline = (text: string, accent: 'emerald' | 'sky' | 'indigo'): React
       return (
         <strong
           key={i}
-          className={`font-semibold text-slate-100 ${
+          className={`font-semibold ${
             accent === 'emerald'
-              ? 'bg-emerald-950/40 text-emerald-200/90 border border-emerald-800/30'
+              ? 'bg-emerald-50 text-emerald-950 border border-emerald-300 dark:bg-emerald-950/60 dark:text-emerald-200 dark:border-emerald-800'
               : accent === 'sky'
-              ? 'bg-sky-950/40 text-sky-200/90 border border-sky-800/30'
-              : 'bg-slate-800/50 text-slate-100'
-          } px-1.5 py-0.5 rounded text-[11.5px]`}
+              ? 'bg-sky-50 text-sky-950 border border-sky-300 dark:bg-sky-950/60 dark:text-sky-200 dark:border-sky-800'
+              : 'bg-indigo-50 text-indigo-950 border border-indigo-300 dark:bg-indigo-950/60 dark:text-indigo-200 dark:border-indigo-800'
+          } px-1.5 py-0.5 rounded text-[11.5px] shadow-sm`}
         >
           {boldText}
         </strong>
@@ -31,7 +31,7 @@ const renderInline = (text: string, accent: 'emerald' | 'sky' | 'indigo'): React
     }
     if (part.startsWith('*') && part.endsWith('*') && part.length >= 2) {
       return (
-        <em key={i} className="italic text-slate-300">
+        <em key={i} className="italic text-text-primary/90 font-medium">
           {part.slice(1, -1)}
         </em>
       );
@@ -40,7 +40,7 @@ const renderInline = (text: string, accent: 'emerald' | 'sky' | 'indigo'): React
       return (
         <code
           key={i}
-          className="px-1.5 py-0.5 rounded bg-slate-800 border border-slate-700 text-emerald-300 font-mono text-[11px]"
+          className="px-1.5 py-0.5 rounded bg-surface-subtle border border-border-default text-brand-primary dark:text-sky-300 font-mono text-[11px]"
         >
           {part.slice(1, -1)}
         </code>
@@ -60,10 +60,10 @@ interface Block {
 export const MarkdownView: React.FC<MarkdownViewProps> = ({
   content,
   className = '',
-  accent = 'emerald'
+  accent = 'sky'
 }) => {
   if (!content || !content.trim()) {
-    return <div className="text-slate-500 italic text-xs">Chưa có nội dung tóm tắt.</div>;
+    return <div className="text-text-muted italic text-xs">Chưa có nội dung tóm tắt.</div>;
   }
 
   // Parse markdown lines into structured blocks
@@ -153,23 +153,27 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({
 
   const bulletDotColor =
     accent === 'emerald'
-      ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.4)]'
+      ? 'bg-emerald-500 shadow-[0_0_6px_rgba(52,211,153,0.4)]'
       : accent === 'sky'
-      ? 'bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.4)]'
-      : 'bg-indigo-400 shadow-[0_0_6px_rgba(129,140,248,0.4)]';
+      ? 'bg-sky-500 shadow-[0_0_6px_rgba(56,189,248,0.4)]'
+      : 'bg-indigo-500 shadow-[0_0_6px_rgba(129,140,248,0.4)]';
 
   const headingBorderColor =
-    accent === 'emerald' ? 'border-emerald-500/30' : accent === 'sky' ? 'border-sky-500/30' : 'border-slate-800';
+    accent === 'emerald' 
+      ? 'border-emerald-500/30' 
+      : accent === 'sky' 
+      ? 'border-sky-500/30' 
+      : 'border-border-subtle';
 
   return (
-    <div className={`space-y-2 text-xs leading-relaxed text-slate-200 font-sans ${className}`}>
+    <div className={`space-y-2 text-xs leading-relaxed text-text-primary font-sans ${className}`}>
       {blocks.map((block, idx) => {
         switch (block.type) {
           case 'h1':
             return (
               <h1
                 key={idx}
-                className="text-sm font-bold text-slate-100 mt-3.5 mb-1.5 pb-1 border-b border-slate-800 flex items-center gap-2"
+                className="text-sm font-bold text-text-primary mt-3.5 mb-1.5 pb-1 border-b border-border-subtle flex items-center gap-2"
               >
                 <span className={`w-1.5 h-4 rounded-full ${accent === 'emerald' ? 'bg-emerald-500' : 'bg-sky-500'}`} />
                 {renderInline(block.text || '', accent)}
@@ -179,7 +183,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({
             return (
               <h2
                 key={idx}
-                className={`text-xs font-bold text-slate-100 mt-3 mb-1 pb-1 border-b ${headingBorderColor} flex items-center gap-1.5`}
+                className={`text-xs font-bold text-text-primary mt-3 mb-1 pb-1 border-b ${headingBorderColor} flex items-center gap-1.5`}
               >
                 <span className={`w-1 h-3 rounded-full ${accent === 'emerald' ? 'bg-emerald-400' : 'bg-sky-400'}`} />
                 {renderInline(block.text || '', accent)}
@@ -189,17 +193,21 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({
             return (
               <h3
                 key={idx}
-                className={`text-xs font-semibold ${
-                  accent === 'emerald' ? 'text-emerald-300' : accent === 'sky' ? 'text-sky-300' : 'text-indigo-300'
+                className={`text-xs font-bold ${
+                  accent === 'emerald' 
+                    ? 'text-emerald-700 dark:text-emerald-300' 
+                    : accent === 'sky' 
+                    ? 'text-sky-700 dark:text-sky-300' 
+                    : 'text-indigo-700 dark:text-indigo-300'
                 } mt-2.5 mb-1 flex items-center gap-1.5`}
               >
-                <span className={`w-1.5 h-1.5 rounded-sm rotate-45 ${accent === 'emerald' ? 'bg-emerald-400' : 'bg-sky-400'}`} />
+                <span className={`w-1.5 h-1.5 rounded-sm rotate-45 ${accent === 'emerald' ? 'bg-emerald-500' : 'bg-sky-500'}`} />
                 {renderInline(block.text || '', accent)}
               </h3>
             );
           case 'h4':
             return (
-              <h4 key={idx} className="text-[11.5px] font-semibold text-slate-300 mt-2 mb-0.5">
+              <h4 key={idx} className="text-[11.5px] font-bold text-text-primary mt-2 mb-0.5">
                 {renderInline(block.text || '', accent)}
               </h4>
             );
@@ -207,7 +215,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({
             return (
               <ul key={idx} className="space-y-1.5 my-1 pl-1">
                 {block.items?.map((item, itemIdx) => (
-                  <li key={itemIdx} className="flex items-start gap-2 text-slate-200">
+                  <li key={itemIdx} className="flex items-start gap-2 text-text-primary">
                     <span className={`w-1.5 h-1.5 rounded-full ${bulletDotColor} mt-1.5 shrink-0`} />
                     <span className="flex-1 leading-relaxed text-xs">{renderInline(item, accent)}</span>
                   </li>
@@ -218,10 +226,10 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({
             return (
               <ol key={idx} className="space-y-1.5 my-1 pl-1">
                 {block.items?.map((item, itemIdx) => (
-                  <li key={itemIdx} className="flex items-start gap-2 text-slate-200">
+                  <li key={itemIdx} className="flex items-start gap-2 text-text-primary">
                     <span
                       className={`text-[10px] font-bold font-mono ${
-                        accent === 'emerald' ? 'text-emerald-400' : 'text-sky-400'
+                        accent === 'emerald' ? 'text-emerald-500' : 'text-sky-500'
                       } mt-0.5 w-4 shrink-0 text-right`}
                     >
                       {itemIdx + 1}.
@@ -236,18 +244,20 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({
               <div
                 key={idx}
                 className={`border-l-2 ${
-                  accent === 'emerald' ? 'border-emerald-500/70 bg-emerald-950/20' : 'border-sky-500/70 bg-sky-950/20'
-                } pl-3 py-1.5 my-2 rounded-r text-slate-300 italic text-[11.5px] leading-relaxed`}
+                  accent === 'emerald' 
+                    ? 'border-emerald-500/70 bg-emerald-500/10' 
+                    : 'border-sky-500/70 bg-sky-500/10'
+                } pl-3 py-1.5 my-2 rounded-r text-text-secondary italic text-[11.5px] leading-relaxed`}
               >
                 {renderInline(block.text || '', accent)}
               </div>
             );
           case 'hr':
-            return <hr key={idx} className="border-slate-800/80 my-2.5" />;
+            return <hr key={idx} className="border-border-subtle my-2.5" />;
           case 'paragraph':
           default:
             return (
-              <p key={idx} className="text-slate-200 leading-relaxed my-1">
+              <p key={idx} className="text-text-primary leading-relaxed my-1">
                 {renderInline(block.text || '', accent)}
               </p>
             );

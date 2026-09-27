@@ -154,6 +154,106 @@ async def list_documents(
 
     return items
 
+
+@router.get("/common-paths")
+async def get_common_paths():
+    """Returns dynamic standard user paths (Desktop, Downloads, Documents) on host OS."""
+    home = Path.home()
+    
+    desktop = home / "Desktop"
+    downloads = home / "Downloads"
+    documents = home / "Documents"
+    
+    # Handle OneDrive redirected standard folders if present
+    onedrive = home / "OneDrive"
+    if onedrive.exists():
+        if (onedrive / "Desktop").exists():
+            desktop = onedrive / "Desktop"
+        if (onedrive / "Documents").exists():
+            documents = onedrive / "Documents"
+    
+    return {
+        "desktop": str(desktop.resolve()) if desktop.exists() else str(home.resolve()),
+        "downloads": str(downloads.resolve()) if downloads.exists() else str(home.resolve()),
+        "documents": str(documents.resolve()) if documents.exists() else str(home.resolve()),
+        "default_output": "data/documents/output"
+    }
+
+
+@router.post("/browse-directory")
+async def browse_directory(body: Optional[dict] = Body(default={})):
+    """Opens a native OS folder browser dialog (TopMost) and returns the selected folder path."""
+    import platform
+    import asyncio
+
+    initial_dir = (body or {}).get("initial_dir", "") if isinstance(body, dict) else ""
+    valid_initial = initial_dir if (initial_dir and Path(initial_dir).exists()) else None
+
+    def _open_dialog():
+        # 1. Primary: Use Python Tkinter (Fast, native Windows IFileDialog, TopMost)
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            root.focus_force()
+            selected = filedialog.askdirectory(
+                initialdir=valid_initial,
+                title="Chọn thư mục lưu file dịch (Save Location)",
+                parent=root
+            )
+            root.destroy()
+            if selected:
+                norm_path = str(Path(selected).resolve())
+                return {"success": True, "path": norm_path, "canceled": False}
+            return {"success": True, "path": "", "canceled": True}
+        except Exception as tk_err:
+            logger.warning(f"Tkinter folder dialog notice: {tk_err}, attempting PowerShell fallback...")
+
+        # 2. Fallback: PowerShell FolderBrowserDialog
+        if platform.system() == "Windows":
+            try:
+                import subprocess
+                escaped_init = str(valid_initial).replace("'", "''") if valid_initial else ""
+                ps_script = (
+                    "Add-Type -AssemblyName System.Windows.Forms; "
+                    "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog; "
+                    "$dialog.Description = 'Chọn thư mục lưu file dịch'; "
+                    "$dialog.ShowNewFolderButton = $true; "
+                )
+                if escaped_init:
+                    ps_script += f"$dialog.SelectedPath = '{escaped_init}'; "
+                ps_script += (
+                    "$res = $dialog.ShowDialog(); "
+                    "if ($res -eq [System.Windows.Forms.DialogResult]::OK) { "
+                    "    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
+                    "    Write-Output $dialog.SelectedPath "
+                    "}"
+                )
+                proc = subprocess.run(
+                    ["powershell.exe", "-NoProfile", "-STA", "-Command", ps_script],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    timeout=120
+                )
+                selected = proc.stdout.strip()
+                if selected:
+                    return {"success": True, "path": str(Path(selected).resolve()), "canceled": False}
+                return {"success": True, "path": "", "canceled": True}
+            except subprocess.TimeoutExpired:
+                return {"success": False, "path": "", "canceled": True, "error": "Hộp thoại chọn thư mục đã quá thời gian chờ (Timeout)."}
+            except Exception as ps_err:
+                logger.error(f"Error opening Windows folder dialog: {ps_err}")
+                return {"success": False, "path": "", "canceled": True, "error": str(ps_err)}
+        else:
+            return {"success": False, "path": "", "canceled": True, "error": "Native folder dialog is only supported on Windows host."}
+
+    return await asyncio.to_thread(_open_dialog)
+
+
 @router.get("/{document_id}")
 async def get_document(document_id: str, db: AsyncSession = Depends(get_db)):
     res = await db.execute(select(DocumentFile).where(DocumentFile.id == document_id))
@@ -840,102 +940,4 @@ async def open_job_folder(job_id: str, db: AsyncSession = Depends(get_db)):
         logger.error(f"Failed to open folder for job {job_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Could not open folder: {str(e)}")
 
-
-@router.get("/common-paths")
-async def get_common_paths():
-    """Returns dynamic standard user paths (Desktop, Downloads, Documents) on host OS."""
-    home = Path.home()
-    
-    desktop = home / "Desktop"
-    downloads = home / "Downloads"
-    documents = home / "Documents"
-    
-    # Handle OneDrive redirected standard folders if present
-    onedrive = home / "OneDrive"
-    if onedrive.exists():
-        if (onedrive / "Desktop").exists():
-            desktop = onedrive / "Desktop"
-        if (onedrive / "Documents").exists():
-            documents = onedrive / "Documents"
-    
-    return {
-        "desktop": str(desktop.resolve()) if desktop.exists() else str(home.resolve()),
-        "downloads": str(downloads.resolve()) if downloads.exists() else str(home.resolve()),
-        "documents": str(documents.resolve()) if documents.exists() else str(home.resolve()),
-        "default_output": "data/documents/output"
-    }
-
-
-@router.post("/browse-directory")
-async def browse_directory(body: Optional[dict] = Body(default={})):
-    """Opens a native OS folder browser dialog (TopMost) and returns the selected folder path."""
-    import platform
-    import asyncio
-
-    initial_dir = (body or {}).get("initial_dir", "") if isinstance(body, dict) else ""
-    valid_initial = initial_dir if (initial_dir and Path(initial_dir).exists()) else None
-
-    def _open_dialog():
-        # 1. Primary: Use Python Tkinter (Fast, native Windows IFileDialog, TopMost)
-        try:
-            import tkinter as tk
-            from tkinter import filedialog
-
-            root = tk.Tk()
-            root.withdraw()
-            root.attributes("-topmost", True)
-            root.focus_force()
-            selected = filedialog.askdirectory(
-                initialdir=valid_initial,
-                title="Chọn thư mục lưu file dịch (Save Location)",
-                parent=root
-            )
-            root.destroy()
-            if selected:
-                norm_path = str(Path(selected).resolve())
-                return {"success": True, "path": norm_path, "canceled": False}
-            return {"success": True, "path": "", "canceled": True}
-        except Exception as tk_err:
-            logger.warning(f"Tkinter folder dialog notice: {tk_err}, attempting PowerShell fallback...")
-
-        # 2. Fallback: PowerShell FolderBrowserDialog
-        if platform.system() == "Windows":
-            try:
-                import subprocess
-                escaped_init = str(valid_initial).replace("'", "''") if valid_initial else ""
-                ps_script = (
-                    "Add-Type -AssemblyName System.Windows.Forms; "
-                    "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog; "
-                    "$dialog.Description = 'Chọn thư mục lưu file dịch'; "
-                    "$dialog.ShowNewFolderButton = $true; "
-                )
-                if escaped_init:
-                    ps_script += f"$dialog.SelectedPath = '{escaped_init}'; "
-                ps_script += (
-                    "$res = $dialog.ShowDialog(); "
-                    "if ($res -eq [System.Windows.Forms.DialogResult]::OK) { "
-                    "    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
-                    "    Write-Output $dialog.SelectedPath "
-                    "}"
-                )
-                proc = subprocess.run(
-                    ["powershell.exe", "-NoProfile", "-STA", "-Command", ps_script],
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    timeout=120
-                )
-                selected = proc.stdout.strip()
-                if selected:
-                    return {"success": True, "path": str(Path(selected).resolve()), "canceled": False}
-                return {"success": True, "path": "", "canceled": True}
-            except subprocess.TimeoutExpired:
-                return {"success": False, "path": "", "canceled": True, "error": "Hộp thoại chọn thư mục đã quá thời gian chờ (Timeout)."}
-            except Exception as ps_err:
-                logger.error(f"Error opening Windows folder dialog: {ps_err}")
-                return {"success": False, "path": "", "canceled": True, "error": str(ps_err)}
-        else:
-            return {"success": False, "path": "", "canceled": True, "error": "Native folder dialog is only supported on Windows host."}
-
-    return await asyncio.to_thread(_open_dialog)
 

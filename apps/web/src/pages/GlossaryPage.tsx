@@ -4,17 +4,26 @@ import {
   Plus, 
   Search, 
   Trash2, 
-  Edit, 
   Filter, 
   BookOpen, 
   Tag,
-  Check
+  Check,
+  FolderOpen,
+  Globe
 } from 'lucide-react';
 import { apiClient } from '../api/client';
 import { GlossaryTerm, Project } from '../types';
 import { useToast } from '../context/ToastContext';
 import { useConfirm } from '../context/ConfirmDialogContext';
 import { TableSkeleton } from '../components/skeletons/TableSkeleton';
+import { PageHeader } from '../components/ui/PageHeader';
+import { Card } from '../components/ui/Card';
+import { Button } from '../components/ui/Button';
+import { Badge } from '../components/ui/Badge';
+import { Input } from '../components/ui/Input';
+import { Modal } from '../components/ui/Modal';
+import { EmptyState } from '../components/ui/EmptyState';
+import { Select } from '../components/ui/Select';
 
 interface GlossaryPageProps {
   activeProject: Project | null;
@@ -85,8 +94,8 @@ export const GlossaryPage: React.FC<GlossaryPageProps> = ({
     }
   };
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleCreate = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!sourceTerm.trim() || !targetTerm.trim()) return;
 
     const targetProjectId = scope === 'project' 
@@ -159,138 +168,156 @@ export const GlossaryPage: React.FC<GlossaryPageProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col h-screen overflow-hidden bg-slate-950 p-6 space-y-4">
+    <div className="flex-1 flex flex-col h-screen overflow-hidden bg-canvas p-6 space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <BookA className="w-5 h-5 text-emerald-400" />
-            Glossary & Terminology
-          </h2>
-          <p className="text-xs text-slate-400">
-            Hierarchical glossary repository ensuring technical IT translation consistency.
-          </p>
-        </div>
-
-        <button
-          onClick={handleOpenCreateModal}
-          className="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-emerald-600/20"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          Add Term
-        </button>
-      </div>
+      <PageHeader
+        title="Từ điển thuật ngữ"
+        actions={
+          <Button
+            variant="primary"
+            onClick={handleOpenCreateModal}
+          >
+            <Plus className="w-4 h-4 mr-1.5" />
+            Thêm thuật ngữ
+          </Button>
+        }
+      />
 
       {/* Filter Bar */}
-      <div className="flex flex-wrap items-center gap-3 p-3 rounded-xl border border-slate-800 bg-slate-900/50">
-        <div className="flex-1 min-w-[200px] relative">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search Japanese or Vietnamese terms..."
-            className="w-full bg-slate-850 border border-slate-700 rounded-lg pl-9 pr-3 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
+      <Card className="p-3 border border-border-subtle bg-surface">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex-1 min-w-[220px] relative">
+            <Search className="w-4 h-4 text-text-muted absolute left-3 top-2.5 pointer-events-none" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search Japanese or Vietnamese terms..."
+              className="pl-9"
+            />
+          </div>
+
+          <Select
+            value={selectedProjectFilter}
+            onChange={(val) => setSelectedProjectFilter(val)}
+            prefix={<FolderOpen className="w-3.5 h-3.5 text-primary" />}
+            size="md"
+            triggerClassName="min-w-[190px]"
+            options={[
+              { value: 'all', label: 'Tất cả dự án' },
+              ...projects.map((p) => ({
+                value: p.id,
+                label: p.name,
+                sublabel: p.code
+              })),
+              { value: 'global_only', label: 'Chỉ từ điển toàn cục' }
+            ]}
           />
+
+          <Select
+            value={selectedScope}
+            onChange={(val) => setSelectedScope(val)}
+            size="md"
+            triggerClassName="min-w-[130px]"
+            options={[
+              { value: '', label: 'All Scopes' },
+              { value: 'project', label: 'Project Scope' },
+              { value: 'global', label: 'Global Scope' },
+              { value: 'company', label: 'Company Scope' },
+            ]}
+          />
+
+          <Select
+            value={selectedCategory}
+            onChange={(val) => setSelectedCategory(val)}
+            size="md"
+            triggerClassName="min-w-[130px]"
+            options={[
+              { value: '', label: 'All Categories' },
+              { value: 'IT', label: 'IT' },
+              { value: 'Security', label: 'Security' },
+              { value: 'Management', label: 'Management' },
+              { value: 'Architecture', label: 'Architecture' },
+              { value: 'Scope', label: 'Scope' },
+            ]}
+          />
+
+          {currentFilteredProject && (
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={handleDeleteAllForProject}
+              className="ml-auto"
+              title={`Xóa toàn bộ thuật ngữ của dự án ${currentFilteredProject.name}`}
+            >
+              <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+              <span>Xóa tất cả ({currentFilteredProject.name})</span>
+            </Button>
+          )}
         </div>
-
-        <select
-          value={selectedProjectFilter}
-          onChange={(e) => setSelectedProjectFilter(e.target.value)}
-          className="bg-slate-850 border border-slate-700 text-xs rounded-lg px-3 py-1.5 text-slate-200 focus:outline-none focus:border-emerald-500 font-medium"
-        >
-          <option value="all">📂 Tất cả dự án (All Projects)</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              📁 {p.name}
-            </option>
-          ))}
-          <option value="global_only">🌐 Chỉ thuật ngữ Global</option>
-        </select>
-
-        <select
-          value={selectedScope}
-          onChange={(e) => setSelectedScope(e.target.value)}
-          className="bg-slate-850 border border-slate-700 text-xs rounded-lg px-3 py-1.5 text-slate-300 focus:outline-none focus:border-emerald-500"
-        >
-          <option value="">All Scopes</option>
-          <option value="project">Project Scope</option>
-          <option value="global">Global Scope</option>
-          <option value="company">Company Scope</option>
-        </select>
-
-        <select
-          value={selectedCategory}
-          onChange={(e) => setSelectedCategory(e.target.value)}
-          className="bg-slate-850 border border-slate-700 text-xs rounded-lg px-3 py-1.5 text-slate-300 focus:outline-none focus:border-emerald-500"
-        >
-          <option value="">All Categories</option>
-          <option value="IT">IT</option>
-          <option value="Security">Security</option>
-          <option value="Management">Management</option>
-          <option value="Architecture">Architecture</option>
-          <option value="Scope">Scope</option>
-        </select>
-
-        {currentFilteredProject && (
-          <button
-            onClick={handleDeleteAllForProject}
-            className="px-3 py-1.5 rounded-lg border border-rose-800/60 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 text-xs font-medium flex items-center gap-1.5 transition ml-auto"
-            title={`Xóa toàn bộ thuật ngữ của dự án ${currentFilteredProject.name}`}
-          >
-            <Trash2 className="w-3.5 h-3.5 text-rose-400" />
-            <span>Xóa tất cả ({currentFilteredProject.name})</span>
-          </button>
-        )}
-      </div>
+      </Card>
 
       {/* Terms Table */}
-      <div className="flex-1 rounded-xl border border-slate-800 bg-slate-900/50 overflow-hidden flex flex-col">
+      <Card className="flex-1 flex flex-col overflow-hidden p-0 border border-border-subtle bg-surface min-h-0">
         {loading ? (
-          <TableSkeleton rows={6} columns={6} />
+          <div className="p-4">
+            <TableSkeleton rows={8} columns={6} />
+          </div>
+        ) : terms.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center p-8">
+            <EmptyState
+              icon={<BookA className="w-10 h-10" />}
+              title="No terms found"
+              description="No glossary entries match your current search or project filters."
+              action={
+                <Button variant="outline" size="sm" onClick={handleOpenCreateModal}>
+                  <Plus className="w-3.5 h-3.5 mr-1" /> Add New Term
+                </Button>
+              }
+            />
+          </div>
         ) : (
           <div className="overflow-x-auto flex-1">
-            <table className="w-full text-left text-xs text-slate-300">
-              <thead className="bg-slate-850/90 text-slate-400 uppercase font-semibold text-[10px] tracking-wider border-b border-slate-800">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-surface-elevated text-text-muted uppercase font-semibold text-[10px] tracking-wider border-b border-border-subtle sticky top-0 z-10">
                 <tr>
-                  <th className="py-3 px-4">Japanese (Source)</th>
-                  <th className="py-3 px-4">Vietnamese (Target)</th>
+                  <th className="py-3 px-4 w-1/4">Japanese (Source)</th>
+                  <th className="py-3 px-4 w-1/4">Vietnamese (Target)</th>
                   <th className="py-3 px-4">Category</th>
                   <th className="py-3 px-4">Scope</th>
                   <th className="py-3 px-4">Notes / Context</th>
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800/60 font-sans">
+              <tbody className="divide-y divide-border-subtle font-sans">
                 {terms.map((term) => (
-                  <tr key={term.id} className="hover:bg-slate-800/40 transition-colors">
-                    <td className="py-3 px-4 font-semibold text-white">
+                  <tr key={term.id} className="hover:bg-surface-hover transition-colors">
+                    <td className="py-3 px-4 font-semibold text-text-primary">
                       {term.source_term}
                     </td>
-                    <td className="py-3 px-4 text-emerald-400 font-medium">
+                    <td className="py-3 px-4 text-emerald-500 font-medium">
                       {term.target_term}
                     </td>
                     <td className="py-3 px-4">
-                      <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px] font-mono border border-slate-700">
+                      <Badge variant="neutral" size="sm" className="font-mono text-[10px]">
                         {term.category || 'IT'}
-                      </span>
+                      </Badge>
                     </td>
                     <td className="py-3 px-4">
-                      <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-semibold ${
-                        term.scope === 'project'
-                          ? 'bg-sky-950 text-sky-300 border border-sky-800/40'
-                          : 'bg-indigo-950 text-indigo-300 border border-indigo-800/40'
-                      }`}>
+                      <Badge 
+                        variant={term.scope === 'project' ? 'info' : 'purple'} 
+                        size="sm"
+                        className="text-[10px] uppercase font-semibold"
+                      >
                         {term.scope} {term.project_name ? `(${term.project_name})` : ''}
-                      </span>
+                      </Badge>
                     </td>
-                    <td className="py-3 px-4 text-slate-400 text-[11px]">
-                      {term.notes || term.definition || '-'}
+                    <td className="py-3 px-4 text-text-muted text-[11px] max-w-xs truncate" title={term.notes || term.definition || undefined}>
+                      {term.notes || term.definition || '—'}
                     </td>
                     <td className="py-3 px-4 text-right">
                       <button
                         onClick={() => handleDelete(term.id)}
-                        className="p-1 text-slate-500 hover:text-rose-400 transition-colors"
+                        className="p-1.5 text-text-muted hover:text-danger hover:bg-danger/10 rounded transition-colors"
                         title="Delete Term"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -298,136 +325,105 @@ export const GlossaryPage: React.FC<GlossaryPageProps> = ({
                     </td>
                   </tr>
                 ))}
-
-                {terms.length === 0 && !loading && (
-                  <tr>
-                    <td colSpan={6} className="py-8 text-center text-slate-500 text-xs">
-                      No glossary terms found matching filter.
-                    </td>
-                  </tr>
-                )}
               </tbody>
             </table>
           </div>
         )}
-      </div>
+      </Card>
 
       {/* Add Term Modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <form
-            onSubmit={handleCreate}
-            className="bg-slate-900 border border-slate-700 rounded-xl max-w-md w-full p-5 shadow-2xl space-y-4"
-          >
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <h3 className="text-sm font-semibold text-white">Add New Terminology Entry</h3>
-              <button
-                type="button"
-                onClick={() => setShowModal(false)}
-                className="text-slate-400 hover:text-white text-xs"
-              >
-                ✕
-              </button>
+      <Modal
+        isOpen={showModal}
+        onClose={() => setShowModal(false)}
+        title="Add New Terminology Entry"
+        description="Establish mandatory source-to-target translations for AI consistency."
+        size="md"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowModal(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={() => handleCreate()}>
+              Save Term
+            </Button>
+          </>
+        }
+      >
+        <form onSubmit={handleCreate} className="space-y-3.5 text-xs">
+          <div>
+            <label className="text-text-secondary font-medium block mb-1">Source Term (Japanese / English) *</label>
+            <Input
+              required
+              value={sourceTerm}
+              onChange={(e) => setSourceTerm(e.target.value)}
+              placeholder="e.g. 障害 or OAuth認証"
+            />
+          </div>
+
+          <div>
+            <label className="text-text-secondary font-medium block mb-1">Target Term (Vietnamese) *</label>
+            <Input
+              required
+              value={targetTerm}
+              onChange={(e) => setTargetTerm(e.target.value)}
+              placeholder="e.g. sự cố or Xác thực OAuth"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-text-secondary font-medium block mb-1">Scope</label>
+              <Select
+                value={scope}
+                onChange={(val) => setScope(val)}
+                size="md"
+                className="w-full"
+                options={[
+                  { value: 'project', label: 'Project Scope' },
+                  { value: 'global', label: 'Global (All Projects)' },
+                  { value: 'company', label: 'Company Wide' },
+                ]}
+              />
             </div>
 
-            <div className="space-y-3 text-xs">
-              <div>
-                <label className="text-slate-300 block mb-1">Source Term (Japanese / English) *</label>
-                <input
-                  type="text"
-                  required
-                  value={sourceTerm}
-                  onChange={(e) => setSourceTerm(e.target.value)}
-                  placeholder="e.g. 障害 or OAuth認証"
-                  className="w-full bg-slate-850 border border-slate-700 rounded px-2.5 py-1.5 text-slate-100 focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="text-slate-300 block mb-1">Target Term (Vietnamese) *</label>
-                <input
-                  type="text"
-                  required
-                  value={targetTerm}
-                  onChange={(e) => setTargetTerm(e.target.value)}
-                  placeholder="e.g. sự cố or Xác thực OAuth"
-                  className="w-full bg-slate-850 border border-slate-700 rounded px-2.5 py-1.5 text-slate-100 focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-slate-300 block mb-1">Scope</label>
-                  <select
-                    value={scope}
-                    onChange={(e) => setScope(e.target.value)}
-                    className="w-full bg-slate-850 border border-slate-700 rounded px-2.5 py-1.5 text-slate-100 focus:outline-none focus:border-emerald-500"
-                  >
-                    <option value="project">Project Scope</option>
-                    <option value="global">Global (All Projects)</option>
-                    <option value="company">Company Wide</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-slate-300 block mb-1">Category</label>
-                  <input
-                    type="text"
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                    placeholder="IT, Security, etc."
-                    className="w-full bg-slate-850 border border-slate-700 rounded px-2.5 py-1.5 text-slate-100 focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-              </div>
-
-              {scope === 'project' && (
-                <div>
-                  <label className="text-slate-300 block mb-1">Áp dụng cho Dự án *</label>
-                  <select
-                    value={modalProjectId}
-                    onChange={(e) => setModalProjectId(e.target.value)}
-                    required
-                    className="w-full bg-slate-850 border border-slate-700 rounded px-2.5 py-1.5 text-slate-100 focus:outline-none focus:border-emerald-500"
-                  >
-                    {projects.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        📁 {p.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <div>
-                <label className="text-slate-300 block mb-1">Notes / Context of Usage</label>
-                <textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="When to apply this term..."
-                  className="w-full h-16 bg-slate-850 border border-slate-700 rounded px-2.5 py-1.5 text-slate-100 focus:outline-none focus:border-emerald-500 resize-none"
-                />
-              </div>
+            <div>
+              <label className="text-text-secondary font-medium block mb-1">Category</label>
+              <Input
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                placeholder="IT, Security, etc."
+              />
             </div>
+          </div>
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
-              <button
-                type="button"
-                onClick={() => setShowModal(false)}
-                className="px-3 py-1.5 rounded bg-slate-800 text-slate-300 text-xs hover:bg-slate-700"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold"
-              >
-                Save Term
-              </button>
+          {scope === 'project' && (
+            <div>
+              <label className="text-text-secondary font-medium block mb-1">Áp dụng cho Dự án *</label>
+              <Select
+                value={modalProjectId}
+                onChange={(val) => setModalProjectId(val)}
+                size="md"
+                className="w-full"
+                options={projects.map((p) => ({
+                  value: p.id,
+                  label: p.name,
+                  sublabel: p.code
+                }))}
+              />
             </div>
-          </form>
-        </div>
-      )}
+          )}
+
+          <div>
+            <label className="text-text-secondary font-medium block mb-1">Notes / Context of Usage</label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="When to apply this term..."
+              className="w-full h-18 bg-surface-elevated border border-border-subtle rounded-lg px-3 py-2 text-text-primary text-xs focus:outline-none focus:border-primary resize-none placeholder-text-muted"
+            />
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 };

@@ -166,42 +166,42 @@ export const GoogleCredentialsDropzone: React.FC<GoogleCredentialsDropzoneProps>
   };
 
   return (
-    <div className="p-8 bg-slate-900/90 border border-slate-800 rounded-2xl shadow-xl space-y-6 max-w-3xl mx-auto">
+    <div className="p-8 bg-surface border border-border-subtle rounded-2xl shadow-xl space-y-6 max-w-3xl mx-auto">
       {/* Header Info */}
       <div className="flex items-start justify-between">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <h3 className="text-base font-semibold text-white">
+            <h3 className="text-base font-semibold text-text-primary">
               Kết Nối Google Workspace (Docs, Sheets, Slides)
             </h3>
-            <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-sky-500/10 border border-sky-500/30 text-sky-400">
+            <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-sky-500/10 border border-sky-500/30 text-brand-primary">
               OAuth 2.0
             </span>
           </div>
-          <p className="text-sm text-slate-400">
+          <p className="text-sm text-text-secondary">
             Dán Client ID & Secret hoặc kéo thả file JSON từ Google Cloud Console.
           </p>
         </div>
 
         <button
           onClick={onOpenGuide}
-          className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs flex items-center gap-1.5 border border-slate-700 transition-colors"
+          className="px-3 py-1.5 rounded-lg bg-surface-subtle hover:bg-surface text-text-secondary hover:text-text-primary text-xs flex items-center gap-1.5 border border-border-subtle transition-colors"
         >
-          <HelpCircle className="w-4 h-4 text-sky-400" />
+          <HelpCircle className="w-4 h-4 text-brand-primary" />
           <span>Hướng dẫn thiết lập</span>
         </button>
       </div>
 
       {/* Mode Switcher Tabs */}
       {!config?.is_configured && (
-        <div className="flex items-center p-1 rounded-xl bg-slate-950/80 border border-slate-800">
+        <div className="flex items-center p-1 rounded-xl bg-surface-subtle border border-border-subtle">
           <button
             type="button"
             onClick={() => setInputMode('manual')}
             className={`flex-1 py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
               inputMode === 'manual'
-                ? 'bg-sky-600 text-white shadow-md shadow-sky-900/40'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-primary text-white shadow-md shadow-brand-primary/20'
+                : 'text-text-secondary hover:text-text-primary'
             }`}
           >
             <Key className="w-3.5 h-3.5" />
@@ -212,8 +212,8 @@ export const GoogleCredentialsDropzone: React.FC<GoogleCredentialsDropzoneProps>
             onClick={() => setInputMode('dropzone')}
             className={`flex-1 py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
               inputMode === 'dropzone'
-                ? 'bg-sky-600 text-white shadow-md shadow-sky-900/40'
-                : 'text-slate-400 hover:text-slate-200'
+                ? 'bg-primary text-white shadow-md shadow-brand-primary/20'
+                : 'text-text-secondary hover:text-text-primary'
             }`}
           >
             <FileJson className="w-3.5 h-3.5" />
@@ -226,15 +226,15 @@ export const GoogleCredentialsDropzone: React.FC<GoogleCredentialsDropzoneProps>
       {!config?.is_configured && inputMode === 'manual' && (
         <form onSubmit={handleSaveManual} className="space-y-4">
           {/* Quick instructions for user's screen */}
-          <div className="p-3.5 rounded-xl bg-sky-500/10 border border-sky-500/25 text-sky-200 text-xs space-y-2">
-            <div className="flex items-center gap-2 font-semibold text-sky-300">
-              <Sparkles className="w-4 h-4 text-sky-400 flex-shrink-0" />
+          <div className="p-3.5 rounded-xl bg-sky-500/5 dark:bg-sky-500/10 border border-sky-500/20 text-sky-900 dark:text-sky-200 text-xs space-y-2">
+            <div className="flex items-center gap-2 font-semibold text-brand-primary">
+              <Sparkles className="w-4 h-4 text-brand-primary flex-shrink-0" />
               <span>Cách lấy Client Secret trong 30 giây:</span>
             </div>
-            <ol className="list-decimal list-inside space-y-1 text-slate-300 pl-1 leading-relaxed">
+            <ol className="list-decimal list-inside space-y-1 text-text-secondary pl-1 leading-relaxed">
               <li>
                 Trên tab Google Cloud (màn hình bạn vừa chụp), bấm nút{' '}
-                <strong className="text-white bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">
+                <strong className="text-text-primary bg-surface-subtle px-1.5 py-0.5 rounded border border-border-subtle">
                   + Add secret
                 </strong>
                 .
@@ -248,7 +248,7 @@ export const GoogleCredentialsDropzone: React.FC<GoogleCredentialsDropzoneProps>
 
           <div className="space-y-3.5">
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1.5">
+              <label className="block text-xs font-medium text-text-secondary mb-1.5">
                 Client ID (đã tự động điền từ Google Cloud của bạn)
               </label>
               <input
@@ -256,14 +256,14 @@ export const GoogleCredentialsDropzone: React.FC<GoogleCredentialsDropzoneProps>
                 value={manualClientId}
                 onChange={(e) => setManualClientId(e.target.value)}
                 placeholder="673906047017-xxxx.apps.googleusercontent.com"
-                className="w-full bg-slate-950 border border-slate-700 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 rounded-xl px-3.5 py-2.5 text-xs text-sky-300 font-mono transition-colors"
+                className="w-full bg-surface-subtle border border-border-default focus:border-brand-primary focus:ring-1 focus:ring-brand-primary rounded-xl px-3.5 py-2.5 text-xs text-brand-primary font-mono transition-colors"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                Client Secret <span className="text-rose-400">*</span>
+              <label className="block text-xs font-medium text-text-secondary mb-1.5">
+                Client Secret <span className="text-rose-500">*</span>
               </label>
               <div className="relative">
                 <input
@@ -271,13 +271,13 @@ export const GoogleCredentialsDropzone: React.FC<GoogleCredentialsDropzoneProps>
                   value={manualClientSecret}
                   onChange={(e) => setManualClientSecret(e.target.value)}
                   placeholder="Dán mã secret vừa tạo tại đây (ví dụ: GOCSPX-...)"
-                  className="w-full bg-slate-950 border border-slate-700 focus:border-sky-500 focus:ring-1 focus:ring-sky-500 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono pr-10 transition-colors"
+                  className="w-full bg-surface-subtle border border-border-default focus:border-brand-primary focus:ring-1 focus:ring-brand-primary rounded-xl px-3.5 py-2.5 text-xs text-text-primary font-mono pr-10 transition-colors"
                   required
                 />
                 <button
                   type="button"
                   onClick={() => setShowSecret(!showSecret)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
                 >
                   {showSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -285,7 +285,7 @@ export const GoogleCredentialsDropzone: React.FC<GoogleCredentialsDropzoneProps>
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">
+              <label className="block text-xs font-medium text-text-secondary mb-1.5">
                 Project ID
               </label>
               <input
@@ -293,7 +293,7 @@ export const GoogleCredentialsDropzone: React.FC<GoogleCredentialsDropzoneProps>
                 value={manualProjectId}
                 onChange={(e) => setManualProjectId(e.target.value)}
                 placeholder="AutomationTranslate"
-                className="w-full bg-slate-950/60 border border-slate-800 focus:border-sky-500 rounded-xl px-3.5 py-2 text-xs text-slate-300 font-mono transition-colors"
+                className="w-full bg-surface-subtle border border-border-default focus:border-brand-primary rounded-xl px-3.5 py-2 text-xs text-text-primary font-mono transition-colors"
               />
             </div>
           </div>
@@ -301,7 +301,7 @@ export const GoogleCredentialsDropzone: React.FC<GoogleCredentialsDropzoneProps>
           <button
             type="submit"
             disabled={isSavingManual}
-            className="w-full py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-semibold transition-all flex items-center justify-center gap-2 shadow-lg shadow-sky-600/25"
+            className="w-full py-2.5 rounded-xl bg-primary hover:bg-primary-hover disabled:opacity-50 text-white text-xs font-semibold transition-all flex items-center justify-center gap-2 shadow-lg shadow-brand-primary/20"
           >
             {isSavingManual ? (
               <>
@@ -336,18 +336,18 @@ export const GoogleCredentialsDropzone: React.FC<GoogleCredentialsDropzoneProps>
             onClick={() => fileInputRef.current?.click()}
             className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all duration-200 ${
               isDragging
-                ? 'border-sky-400 bg-sky-950/20 scale-[1.01]'
+                ? 'border-brand-primary bg-sky-500/10 scale-[1.01]'
                 : config?.is_configured
-                ? 'border-emerald-500/40 bg-emerald-950/10 hover:border-emerald-500/60'
-                : 'border-slate-700 hover:border-sky-500/60 bg-slate-850/50'
+                ? 'border-emerald-500/40 bg-emerald-500/5 hover:border-emerald-500/60'
+                : 'border-border-default hover:border-brand-primary bg-surface-subtle'
             }`}
           >
             <div className="flex flex-col items-center justify-center gap-3">
               <div
                 className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-colors ${
                   config?.is_configured
-                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                    : 'bg-sky-500/15 text-sky-400 border border-sky-500/30'
+                    ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                    : 'bg-sky-500/15 text-brand-primary border border-sky-500/30'
                 }`}
               >
                 {isUploading ? (
@@ -360,14 +360,14 @@ export const GoogleCredentialsDropzone: React.FC<GoogleCredentialsDropzoneProps>
               </div>
 
               <div>
-                <p className="text-sm font-semibold text-white">
+                <p className="text-sm font-semibold text-text-primary">
                   {config?.is_configured ? (
-                    <span className="text-emerald-300">Đã cấu hình Google OAuth thành công!</span>
+                    <span className="text-emerald-700 dark:text-emerald-300">Đã cấu hình Google OAuth thành công!</span>
                   ) : (
                     'Kéo thả file credentials.json vào đây'
                   )}
                 </p>
-                <p className="text-xs text-slate-400 mt-1">
+                <p className="text-xs text-text-muted mt-1">
                   {config?.is_configured ? (
                     <span>Bấm vào đây nếu bạn muốn thay đổi hoặc tải lên file JSON khác</span>
                   ) : (
@@ -382,14 +382,14 @@ export const GoogleCredentialsDropzone: React.FC<GoogleCredentialsDropzoneProps>
 
       {/* Config Details if Configured */}
       {config?.is_configured && (
-        <div className="p-4 rounded-xl bg-slate-850 border border-slate-800 space-y-3">
+        <div className="p-4 rounded-xl bg-surface-subtle border border-border-subtle space-y-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-xs font-semibold text-white">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+            <div className="flex items-center gap-2 text-xs font-semibold text-text-primary">
+              <ShieldCheck className="w-4 h-4 text-emerald-500" />
               <span>Thông tin OAuth Client đang kích hoạt:</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="px-2 py-0.5 rounded text-[11px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+              <span className="px-2 py-0.5 rounded text-[11px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
                 Active
               </span>
               <button
@@ -397,7 +397,7 @@ export const GoogleCredentialsDropzone: React.FC<GoogleCredentialsDropzoneProps>
                   setConfig((prev) => (prev ? { ...prev, is_configured: false } : null));
                   setInputMode('manual');
                 }}
-                className="text-[11px] text-slate-400 hover:text-sky-300 underline transition-colors"
+                className="text-[11px] text-text-muted hover:text-brand-primary underline transition-colors"
               >
                 Chỉnh sửa
               </button>
@@ -405,15 +405,15 @@ export const GoogleCredentialsDropzone: React.FC<GoogleCredentialsDropzoneProps>
           </div>
 
           <div className="grid grid-cols-2 gap-3 text-xs">
-            <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 space-y-1">
-              <span className="text-slate-400">Project ID:</span>
-              <p className="font-mono text-white font-medium truncate">
+            <div className="p-2.5 rounded-lg bg-surface border border-border-subtle space-y-1">
+              <span className="text-text-muted">Project ID:</span>
+              <p className="font-mono text-text-primary font-medium truncate">
                 {config.project_id || 'AutomationTranslate'}
               </p>
             </div>
-            <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 space-y-1">
-              <span className="text-slate-400">Client ID:</span>
-              <p className="font-mono text-sky-300 truncate" title={config.client_id_masked}>
+            <div className="p-2.5 rounded-lg bg-surface border border-border-subtle space-y-1">
+              <span className="text-text-muted">Client ID:</span>
+              <p className="font-mono text-brand-primary truncate" title={config.client_id_masked}>
                 {config.client_id_masked}
               </p>
             </div>
@@ -423,15 +423,15 @@ export const GoogleCredentialsDropzone: React.FC<GoogleCredentialsDropzoneProps>
 
       {/* Redirect Warning Alert if applicable */}
       {redirectWarning && (
-        <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs flex items-start gap-2.5">
-          <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+        <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-200 text-xs flex items-start gap-2.5">
+          <AlertCircle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
           <p className="leading-relaxed">{redirectWarning}</p>
         </div>
       )}
 
       {/* Action Buttons */}
-      <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-800">
-        <div className="text-xs text-slate-400">
+      <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-border-subtle">
+        <div className="text-xs text-text-muted">
           {config?.is_configured
             ? '✅ File cấu hình hợp lệ. Bấm nút bên phải để kết nối tài khoản Google thật.'
             : '💡 Sau khi lưu Client ID & Secret, nút đăng nhập sẽ xuất hiện tại đây.'}
@@ -441,7 +441,7 @@ export const GoogleCredentialsDropzone: React.FC<GoogleCredentialsDropzoneProps>
           {config?.is_configured ? (
             <button
               onClick={handleStartGoogleOAuth}
-              className="flex-1 sm:flex-none px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold shadow-lg shadow-sky-600/20 transition-all flex items-center justify-center gap-2"
+              className="flex-1 sm:flex-none px-5 py-2.5 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-semibold shadow-lg shadow-brand-primary/20 transition-all flex items-center justify-center gap-2"
             >
               <LogIn className="w-4 h-4" />
               <span>Đăng Nhập Google (Tài Khoản Thật)</span>
@@ -449,9 +449,9 @@ export const GoogleCredentialsDropzone: React.FC<GoogleCredentialsDropzoneProps>
           ) : (
             <button
               onClick={onOpenGuide}
-              className="flex-1 sm:flex-none px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition-colors flex items-center justify-center gap-1.5 border border-slate-700"
+              className="flex-1 sm:flex-none px-4 py-2 rounded-xl bg-surface-subtle hover:bg-surface text-text-secondary hover:text-text-primary text-xs font-medium transition-colors flex items-center justify-center gap-1.5 border border-border-subtle"
             >
-              <HelpCircle className="w-4 h-4 text-sky-400" />
+              <HelpCircle className="w-4 h-4 text-brand-primary" />
               <span>Xem hướng dẫn chi tiết</span>
             </button>
           )}

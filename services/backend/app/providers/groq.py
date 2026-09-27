@@ -53,7 +53,7 @@ class GroqProvider(AIProvider):
 
         # Safe high-speed models verified active on Groq
         models_to_try = [active_model]
-        for fb in ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "groq/compound-mini", "qwen/qwen3.6-27b"]:
+        for fb in ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]:
             if fb not in models_to_try:
                 models_to_try.append(fb)
 
@@ -66,18 +66,15 @@ class GroqProvider(AIProvider):
 
             payload["model"] = current_model
             if json_mode:
-                if "qwen" in current_model.lower():
-                    # For Qwen reasoning models, hide internal thinking tokens so output produces direct clean JSON
+                if any(k in current_model.lower() for k in ["qwen", "gpt-oss"]):
+                    # For reasoning models, hide internal thinking tokens so output produces direct clean JSON
                     payload["reasoning_format"] = "hidden"
                     payload.pop("response_format", None)
-                elif any(k in current_model.lower() for k in ["compound", "gpt-oss"]):
-                    payload["response_format"] = {"type": "json_object"}
-                    payload.pop("reasoning_format", None)
                 else:
-                    payload.pop("response_format", None)
                     payload.pop("reasoning_format", None)
+                    payload["response_format"] = {"type": "json_object"}
             else:
-                if "qwen" in current_model.lower():
+                if any(k in current_model.lower() for k in ["qwen", "gpt-oss"]):
                     payload["reasoning_format"] = "hidden"
                 else:
                     payload.pop("reasoning_format", None)
@@ -91,7 +88,7 @@ class GroqProvider(AIProvider):
             if "qwen" in current_model.lower():
                 model_limit = 800
             else:
-                model_limit = min(2000, safe_ceiling)
+                model_limit = min(4000, safe_ceiling)
 
             target_max = max_tokens or model_limit
             payload["max_tokens"] = max(350, min(target_max, model_limit, safe_ceiling))

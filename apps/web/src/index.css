@@ -2,46 +2,177 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  /* Motion Physics Tokens */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Light Mode (Crisp, High-contrast, Neutral Off-white, Linear/Raycast light aesthetic) */
+  --bg-canvas: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-surface-elevated: #ffffff;
+  --bg-surface-hover: #f1f5f9;
+  --bg-surface-subtle: #f8fafc;
+  
+  --border-subtle: #e2e8f0;
+  --border-default: #cbd5e1;
+  --border-active: #94a3b8;
+
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+  --text-inverse: #ffffff;
+
+  --brand-primary: #0284c7;        /* Sky-600 */
+  --brand-primary-hover: #0369a1;  /* Sky-700 */
+  --brand-surface: #f0f9ff;        /* Sky-50 */
+  --brand-text: #0369a1;
+
+  --status-success: #10b981;
+  --status-success-bg: #ecfdf5;
+  --status-warning: #f59e0b;
+  --status-warning-bg: #fffbeb;
+  --status-danger: #ef4444;
+  --status-danger-bg: #fef2f2;
+  --status-info: #3b82f6;
+  --status-info-bg: #eff6ff;
+
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: #cbd5e1;
+  --scrollbar-thumb-hover: #94a3b8;
+}
+
+.dark {
+  /* Dark Mode (Neutral Charcoal / Deep Slate, NEVER pure black #000) */
+  --bg-canvas: #0c0e12;
+  --bg-surface: #13171f;
+  --bg-surface-elevated: #181d27;
+  --bg-surface-hover: #1f2533;
+  --bg-surface-subtle: #0f1218;
+
+  --border-subtle: #1e2430;
+  --border-default: #2b3344;
+  --border-active: #3f4b63;
+
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --text-inverse: #0f172a;
+
+  --brand-primary: #38bdf8;        /* Sky-400 */
+  --brand-primary-hover: #0284c7;  /* Sky-600 */
+  --brand-surface: #082f49;
+  --brand-text: #7dd3fc;
+
+  --status-success: #34d399;
+  --status-success-bg: rgba(6, 78, 59, 0.25);
+  --status-warning: #fbbf24;
+  --status-warning-bg: rgba(120, 53, 15, 0.25);
+  --status-danger: #f87171;
+  --status-danger-bg: rgba(127, 29, 29, 0.25);
+  --status-info: #60a5fa;
+  --status-info-bg: rgba(30, 58, 138, 0.25);
+
+  --scrollbar-track: transparent;
+  --scrollbar-thumb: #232a38;
+  --scrollbar-thumb-hover: #333d52;
+}
+
 @layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  * {
+    border-color: var(--border-subtle);
+  }
+
   body {
-    @apply bg-slate-950 text-slate-100 font-sans antialiased selection:bg-sky-500 selection:text-white min-h-screen;
+    background-color: var(--bg-canvas);
+    color: var(--text-primary);
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Silky Smooth Theme Color Transition */
+  body,
+  .surface-card,
+  .surface-panel,
+  nav,
+  header,
+  aside {
+    transition: background-color 180ms var(--ease-out-expo),
+                border-color 180ms var(--ease-out-expo),
+                color 180ms var(--ease-out-expo);
+  }
+
+  /* Clean, premium styling for select controls across the entire app */
+  select {
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3E%3Cpath stroke='%2394a3b8' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3E%3C/svg%3E");
+    background-position: right 0.6rem center;
+    background-repeat: no-repeat;
+    background-size: 1.15em 1.15em;
+    padding-right: 2rem !important;
+  }
+
+  option {
+    background-color: var(--bg-surface-elevated);
+    color: var(--text-primary);
+  }
+
+  /* Prevent SVG line-breaks inside buttons */
+  button svg, .btn svg {
+    display: inline-block;
+    vertical-align: middle;
+    flex-shrink: 0;
   }
 }
 
-/* Custom Scrollbar */
+/* Custom Sleek Adaptive Scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: #0f172a;
+  background: var(--scrollbar-track);
 }
 ::-webkit-scrollbar-thumb {
-  background: #334155;
-  border-radius: 3px;
+  background: var(--scrollbar-thumb);
+  border-radius: 9999px;
+  transition: background 150ms var(--ease-out-expo);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: var(--scrollbar-thumb-hover);
 }
 
-/* Glassmorphism Panel */
-.glass-panel {
-  background: rgba(15, 23, 42, 0.75);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+/* Modern Surfaces */
+.surface-panel {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
 }
 
-.glass-panel-interactive {
-  background: rgba(15, 23, 42, 0.75);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+.surface-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  transition: border-color 150ms var(--ease-out-expo), box-shadow 150ms var(--ease-out-expo), transform 150ms var(--ease-out-expo);
 }
 
-.glass-panel-interactive:hover {
-  border-color: rgba(56, 189, 248, 0.3);
-  box-shadow: 0 4px 20px -2px rgba(2, 132, 199, 0.15);
+.surface-card:hover {
+  border-color: var(--border-default);
+}
+
+/* Micro-interaction Tactile Physics */
+.tactile-btn {
+  transition: transform 120ms var(--ease-out-expo), background-color 150ms var(--ease-out-expo), border-color 150ms var(--ease-out-expo), box-shadow 150ms var(--ease-out-expo);
+  will-change: transform;
+}
+.tactile-btn:active {
+  transform: scale(0.97);
 }
 
 /* Shimmer & Skeleton Animations */
@@ -57,44 +188,43 @@
 .shimmer-skeleton {
   background: linear-gradient(
     90deg,
-    rgba(30, 41, 59, 0.6) 0%,
-    rgba(51, 65, 85, 0.8) 50%,
-    rgba(30, 41, 59, 0.6) 100%
+    rgba(148, 163, 184, 0.08) 0%,
+    rgba(148, 163, 184, 0.22) 50%,
+    rgba(148, 163, 184, 0.08) 100%
   );
   background-size: 200% 100%;
-  animation: shimmer 1.8s infinite ease-in-out;
+  animation: shimmer 1.8s infinite var(--ease-in-out);
 }
 
-/* Button Light Sweep */
-@keyframes lightSweep {
-  0% {
-    transform: translateX(-100%) skewX(-15deg);
+/* Global Modal Spring In Animation */
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(4px);
   }
-  100% {
-    transform: translateX(200%) skewX(-15deg);
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
   }
 }
 
-.btn-loading-shimmer {
-  position: relative;
-  overflow: hidden;
+.animate-modal-in {
+  animation: modalIn 180ms var(--ease-out-expo) forwards;
+  will-change: transform, opacity;
 }
 
-.btn-loading-shimmer::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 60%;
-  height: 100%;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.25) 50%,
-    transparent 100%
-  );
-  animation: lightSweep 1.8s infinite linear;
-  pointer-events: none;
+/* Global Modal Fade Backdrop */
+@keyframes backdropIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-backdrop-in {
+  animation: backdropIn 180ms var(--ease-out-expo) forwards;
 }
 
 /* Global Top Loading Bar */
@@ -114,23 +244,6 @@
 }
 
 .indeterminate-bar {
-  animation: indeterminateBar 1.6s infinite cubic-bezier(0.65, 0.815, 0.735, 0.395);
+  animation: indeterminateBar 1.6s infinite var(--ease-in-out);
   transform-origin: left center;
 }
-
-/* Neon AI Pulse Glow */
-@keyframes aiGlowPulse {
-  0%, 100% {
-    box-shadow: 0 0 15px -3px rgba(56, 189, 248, 0.25), 0 0 6px -2px rgba(99, 102, 241, 0.3);
-    border-color: rgba(56, 189, 248, 0.3);
-  }
-  50% {
-    box-shadow: 0 0 25px 2px rgba(99, 102, 241, 0.45), 0 0 12px 1px rgba(16, 185, 129, 0.35);
-    border-color: rgba(99, 102, 241, 0.6);
-  }
-}
-
-.ai-glow-card {
-  animation: aiGlowPulse 3s infinite ease-in-out;
-}
-

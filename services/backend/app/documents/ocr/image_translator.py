@@ -2,6 +2,7 @@ import io
 import os
 import json
 import base64
+import asyncio
 import httpx
 from PIL import Image, ImageDraw, ImageFont
 from typing import List, Dict, Any, Tuple, Optional
@@ -812,7 +813,7 @@ Items to translate:
             if not labels and ocr_engine in ("paddleocr", "auto", "paddleocr_only"):
                 try:
                     from app.documents.ocr.paddle_ocr_engine import paddle_ocr_engine
-                    labels = paddle_ocr_engine.detect_and_recognize(image_bytes, lang=src_lang)
+                    labels = await asyncio.to_thread(paddle_ocr_engine.detect_and_recognize, image_bytes, lang=src_lang)
                     if labels:
                         logger.info(f"PaddleOCR detected {len(labels)} labels. Translating text labels with AI/Glossary...")
                         labels = await self.translate_text_labels(labels, src_lang, tgt_lang, provider=provider)

@@ -6,6 +6,7 @@ from app.api.intelligence.line_router import router as line_router
 from app.api.intelligence.slack_router import router as slack_router
 from app.api.intelligence.automation_router import router as automation_router
 from app.api.intelligence.stakeholders_router import router as stakeholders_router
+from app.api.intelligence.reports_router import router as reports_router
 
 router = APIRouter()
 router.include_router(work_items_router)
@@ -15,3 +16,4 @@ router.include_router(line_router)
 router.include_router(slack_router)
 router.include_router(automation_router)
 router.include_router(stakeholders_router)
+router.include_router(reports_router)

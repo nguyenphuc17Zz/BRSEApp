@@ -18,6 +18,7 @@ import { ProjectStakeholder, StakeholderCreatePayload } from '../../types';
 import { apiClient } from '../../api/client';
 import { useToast } from '../../context/ToastContext';
 import { useConfirm } from '../../context/ConfirmDialogContext';
+import { Select } from '../ui/Select';
 
 interface StakeholderManagerModalProps {
   isOpen: boolean;
@@ -246,56 +247,56 @@ export const StakeholderManagerModal: React.FC<StakeholderManagerModalProps> = (
   const getRoleBadgeStyle = (role: string) => {
     const r = role.toLowerCase();
     if (r.includes('pm') || r.includes('po') || r.includes('owner')) {
-      return 'bg-amber-500/20 text-amber-300 border-amber-500/30';
+      return 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border-amber-500/20';
     }
     if (r.includes('tech') || r.includes('lead') || r.includes('architect')) {
-      return 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30';
+      return 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/20';
     }
     if (r.includes('brse')) {
-      return 'bg-sky-500/20 text-sky-300 border-sky-500/30';
+      return 'bg-sky-500/10 text-sky-700 dark:text-sky-300 border-sky-500/20';
     }
     if (r.includes('qa') || r.includes('test')) {
-      return 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
+      return 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20';
     }
-    return 'bg-slate-800 text-slate-300 border-slate-700';
+    return 'bg-surface-subtle text-text-secondary border-border-subtle';
   };
 
   const getOrgBadgeStyle = (org: string) => {
     const o = org.toLowerCase();
     if (o.includes('khách') || o.includes('client') || o.includes('nhật')) {
-      return 'bg-rose-500/10 text-rose-300 border-rose-500/20';
+      return 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border-rose-500/20';
     }
     if (o.includes('nội bộ') || o.includes('offshore')) {
-      return 'bg-teal-500/10 text-teal-300 border-teal-500/20';
+      return 'bg-teal-500/10 text-teal-700 dark:text-teal-300 border-teal-500/20';
     }
-    return 'bg-slate-800 text-slate-300 border-slate-700';
+    return 'bg-surface-subtle text-text-secondary border-border-subtle';
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 bg-black/60 dark:bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-surface-elevated border border-border-default rounded-2xl shadow-modal w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in duration-200">
         
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+        <div className="px-6 py-4 border-b border-border-subtle flex items-center justify-between bg-surface-subtle/50">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-sky-500/20 text-sky-400 border border-sky-500/30">
+            <div className="p-2 rounded-xl bg-primary/10 text-primary border border-primary/20">
               <Users className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
+              <h3 className="text-base font-bold text-text-primary tracking-tight flex items-center gap-2">
                 Quản lý Người nhắn & Stakeholders
-                <span className="text-xs font-mono font-normal px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-300 border border-sky-500/20">
+                <span className="text-xs font-mono font-normal px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
                   {stakeholders.length} thành viên
                 </span>
               </h3>
-              <p className="text-xs text-slate-400">
-                Dự án: <span className="text-sky-300 font-medium">{projectName}</span> — Danh sách đối tác, khách hàng và người phát biểu phục vụ phân tích AI.
+              <p className="text-xs text-text-secondary">
+                Dự án: <span className="text-primary font-medium">{projectName}</span> — Danh sách đối tác, khách hàng và người phát biểu phục vụ phân tích AI.
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition"
+            className="text-text-muted hover:text-text-primary p-1.5 rounded-lg hover:bg-surface-hover transition"
           >
             <X className="w-5 h-5" />
           </button>
@@ -305,17 +306,17 @@ export const StakeholderManagerModal: React.FC<StakeholderManagerModalProps> = (
         <div className="flex-1 overflow-y-auto p-6 grid grid-cols-1 md:grid-cols-12 gap-6">
           
           {/* Left Column: Form Thêm mới / Sửa */}
-          <div className="md:col-span-5 bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 flex flex-col space-y-3.5">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-              <span className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                {isEditing ? <Edit2 className="w-3.5 h-3.5 text-amber-400" /> : <UserPlus className="w-3.5 h-3.5 text-sky-400" />}
+          <div className="md:col-span-5 bg-surface-subtle/60 border border-border-subtle rounded-xl p-4 flex flex-col space-y-3.5">
+            <div className="flex items-center justify-between border-b border-border-subtle pb-2">
+              <span className="text-xs font-bold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
+                {isEditing ? <Edit2 className="w-3.5 h-3.5 text-amber-500" /> : <UserPlus className="w-3.5 h-3.5 text-primary" />}
                 {isEditing ? 'Chỉnh sửa Người nhắn' : 'Thêm Người nhắn Mới'}
               </span>
               {isEditing && (
                 <button
                   type="button"
                   onClick={resetForm}
-                  className="text-[11px] text-slate-400 hover:text-white underline cursor-pointer"
+                  className="text-[11px] text-text-muted hover:text-text-primary underline cursor-pointer"
                 >
                   Hủy sửa
                 </button>
@@ -324,68 +325,62 @@ export const StakeholderManagerModal: React.FC<StakeholderManagerModalProps> = (
 
             <form onSubmit={handleSubmit} className="space-y-3 text-xs">
               <div>
-                <label className="text-slate-300 text-[11px] block mb-1 font-medium">
-                  Tên người nhắn / Stakeholder <span className="text-rose-400">*</span>
+                <label className="text-text-secondary text-[11px] block mb-1 font-medium">
+                  Tên người nhắn / Stakeholder <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
                   placeholder="Ví dụ: Suzuki-san, Tanaka (Tech Lead)..."
-                  className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500 transition"
+                  className="w-full bg-surface border border-border-default rounded-lg px-3 py-2 text-text-primary focus:outline-none focus:border-primary transition"
                   required
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-slate-300 text-[11px] block mb-1 font-medium">Vai trò / Chức danh</label>
-                  <select
+                  <label className="text-text-secondary text-[11px] block mb-1 font-medium">Vai trò / Chức danh</label>
+                  <Select
                     value={formRole}
-                    onChange={(e) => setFormRole(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-2 text-slate-200 focus:outline-none focus:border-sky-500 transition"
-                  >
-                    {PRESET_ROLES.map((r) => (
-                      <option key={r} value={r}>{r}</option>
-                    ))}
-                  </select>
+                    onChange={(val) => setFormRole(val)}
+                    size="md"
+                    className="w-full"
+                    options={PRESET_ROLES.map((r) => ({ value: r, label: r }))}
+                  />
                 </div>
 
                 <div>
-                  <label className="text-slate-300 text-[11px] block mb-1 font-medium">Tổ chức / Phía</label>
-                  <select
+                  <label className="text-text-secondary text-[11px] block mb-1 font-medium">Tổ chức / Phía</label>
+                  <Select
                     value={formOrg}
-                    onChange={(e) => setFormOrg(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-2 text-slate-200 focus:outline-none focus:border-sky-500 transition"
-                  >
-                    {PRESET_ORGS.map((o) => (
-                      <option key={o} value={o}>{o}</option>
-                    ))}
-                  </select>
+                    onChange={(val) => setFormOrg(val)}
+                    size="md"
+                    className="w-full"
+                    options={PRESET_ORGS.map((o) => ({ value: o, label: o }))}
+                  />
                 </div>
               </div>
 
               <div>
-                <label className="text-slate-300 text-[11px] block mb-1 font-medium">Nền tảng thường nhắn</label>
-                <select
+                <label className="text-text-secondary text-[11px] block mb-1 font-medium">Nền tảng thường nhắn</label>
+                <Select
                   value={formPlatform}
-                  onChange={(e) => setFormPlatform(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-2.5 py-2 text-slate-200 focus:outline-none focus:border-sky-500 transition"
-                >
-                  {PRESET_PLATFORMS.map((p) => (
-                    <option key={p.value} value={p.value}>{p.label}</option>
-                  ))}
-                </select>
+                  onChange={(val) => setFormPlatform(val)}
+                  size="md"
+                  className="w-full"
+                  options={PRESET_PLATFORMS.map((p) => ({ value: p.value, label: p.label }))}
+                />
               </div>
 
               <div>
-                <label className="text-slate-300 text-[11px] block mb-1 font-medium">Ghi chú phụ trợ</label>
+                <label className="text-text-secondary text-[11px] block mb-1 font-medium">Ghi chú phụ trợ</label>
                 <textarea
                   value={formNotes}
                   onChange={(e) => setFormNotes(e.target.value)}
                   rows={2}
                   placeholder="Ghi chú về thẩm quyền chốt yêu cầu, timeline, v.v."
-                  className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500 transition resize-none"
+                  className="w-full bg-surface border border-border-default rounded-lg px-3 py-2 text-text-primary focus:outline-none focus:border-primary transition resize-none"
                 />
               </div>
 
@@ -393,10 +388,10 @@ export const StakeholderManagerModal: React.FC<StakeholderManagerModalProps> = (
                 <button
                   type="submit"
                   disabled={submitting || !formName.trim()}
-                  className={`w-full py-2.5 px-4 rounded-xl text-white font-semibold flex items-center justify-center gap-2 transition shadow-md cursor-pointer ${
+                  className={`w-full py-2.5 px-4 rounded-xl text-white font-semibold flex items-center justify-center gap-2 transition shadow-sm cursor-pointer ${
                     isEditing
-                      ? 'bg-amber-600 hover:bg-amber-500 text-white'
-                      : 'bg-sky-600 hover:bg-sky-500 text-white'
+                      ? 'bg-amber-600 hover:bg-amber-500'
+                      : 'bg-primary hover:opacity-95'
                   } disabled:opacity-50`}
                 >
                   {submitting ? (
@@ -422,19 +417,19 @@ export const StakeholderManagerModal: React.FC<StakeholderManagerModalProps> = (
             {/* Search Bar & Clean Mock action */}
             <div className="flex items-center gap-2">
               <div className="relative flex-1">
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <Search className="w-3.5 h-3.5 text-text-muted absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Tìm theo tên, vai trò hoặc tổ chức..."
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-sky-500 transition"
+                  className="w-full bg-surface border border-border-default rounded-xl pl-9 pr-3 py-2 text-xs text-text-primary focus:outline-none focus:border-primary transition"
                 />
               </div>
               {searchQuery && (
                 <button
                   onClick={() => setSearchQuery('')}
-                  className="text-xs text-slate-400 hover:text-white px-2 py-1"
+                  className="text-xs text-text-muted hover:text-text-primary px-2 py-1"
                 >
                   Xóa tìm
                 </button>
@@ -442,10 +437,10 @@ export const StakeholderManagerModal: React.FC<StakeholderManagerModalProps> = (
               <button
                 type="button"
                 onClick={handleCleanMockData}
-                className="px-2.5 py-2 rounded-xl text-xs bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/20 flex items-center gap-1.5 transition cursor-pointer shrink-0 font-medium"
+                className="px-2.5 py-2 rounded-xl text-xs bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/20 flex items-center gap-1.5 transition cursor-pointer shrink-0 font-medium"
                 title="Xóa toàn bộ các dữ liệu mẫu đã tạo tự động để dọn sạch hệ thống"
               >
-                <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                <Trash2 className="w-3.5 h-3.5 text-rose-500" />
                 <span>Dọn mẫu</span>
               </button>
             </div>
@@ -453,13 +448,13 @@ export const StakeholderManagerModal: React.FC<StakeholderManagerModalProps> = (
             {/* List */}
             <div className="space-y-2 max-h-[460px] overflow-y-auto pr-1">
               {loading ? (
-                <div className="p-12 text-center text-slate-500 text-xs">
-                  <div className="w-5 h-5 border-2 border-sky-500/30 border-t-sky-500 rounded-full animate-spin mx-auto mb-2" />
+                <div className="p-12 text-center text-text-muted text-xs">
+                  <div className="w-5 h-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin mx-auto mb-2" />
                   Đang tải danh sách người nhắn...
                 </div>
               ) : filteredList.length === 0 ? (
-                <div className="p-10 text-center text-slate-500 text-xs bg-slate-950/40 rounded-xl border border-slate-800/60">
-                  <Users className="w-8 h-8 mx-auto mb-2 text-slate-600" />
+                <div className="p-10 text-center text-text-muted text-xs bg-surface-subtle/50 rounded-xl border border-border-subtle">
+                  <Users className="w-8 h-8 mx-auto mb-2 text-text-muted/60" />
                   {searchQuery ? (
                     <div>Không tìm thấy người nhắn nào khớp với từ khóa "{searchQuery}".</div>
                   ) : (
@@ -474,19 +469,19 @@ export const StakeholderManagerModal: React.FC<StakeholderManagerModalProps> = (
                       key={s.id}
                       className={`p-3 rounded-xl border transition flex items-start justify-between gap-3 ${
                         isCurrentEditing
-                          ? 'bg-amber-950/20 border-amber-500/50 ring-1 ring-amber-500/30'
-                          : 'bg-slate-950/70 border-slate-800/80 hover:border-slate-700'
+                          ? 'bg-amber-500/10 border-amber-500/50 ring-1 ring-amber-500/30'
+                          : 'bg-surface border-border-subtle hover:border-border-default'
                       }`}
                     >
                       <div className="flex items-start gap-3 min-w-0">
                         {/* Avatar Initials */}
-                        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-sky-600/30 to-indigo-600/30 border border-sky-500/30 text-sky-300 font-bold text-xs flex items-center justify-center shrink-0 mt-0.5 shadow-xs">
+                        <div className="w-8 h-8 rounded-lg bg-primary/10 border border-primary/20 text-primary font-bold text-xs flex items-center justify-center shrink-0 mt-0.5">
                           {s.name.slice(0, 2).toUpperCase()}
                         </div>
 
                         <div className="space-y-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-semibold text-slate-200 text-xs truncate">
+                            <span className="font-semibold text-text-primary text-xs truncate">
                               {s.name}
                             </span>
                             <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${getRoleBadgeStyle(s.role)}`}>
@@ -498,12 +493,12 @@ export const StakeholderManagerModal: React.FC<StakeholderManagerModalProps> = (
                           </div>
 
                           {s.notes && (
-                            <p className="text-[11px] text-slate-400 line-clamp-1 italic">
+                            <p className="text-[11px] text-text-secondary line-clamp-1 italic">
                               "{s.notes}"
                             </p>
                           )}
 
-                          <div className="text-[10px] text-slate-500 flex items-center gap-2 font-mono">
+                          <div className="text-[10px] text-text-muted flex items-center gap-2 font-mono">
                             <span>Kênh: {s.platform || 'all'}</span>
                           </div>
                         </div>
@@ -519,7 +514,7 @@ export const StakeholderManagerModal: React.FC<StakeholderManagerModalProps> = (
                               toast.info(`Đã chọn: ${s.name}`, 'Người nhắn');
                               onClose();
                             }}
-                            className="px-2.5 py-1 text-[11px] rounded-lg bg-sky-600/20 text-sky-300 hover:bg-sky-600/30 border border-sky-500/30 transition cursor-pointer font-medium"
+                            className="px-2.5 py-1 text-[11px] rounded-lg bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 transition cursor-pointer font-medium"
                             title="Chọn người này vào Smart Message Analyzer"
                           >
                             Chọn
@@ -528,7 +523,7 @@ export const StakeholderManagerModal: React.FC<StakeholderManagerModalProps> = (
                         <button
                           type="button"
                           onClick={() => handleStartEdit(s)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-amber-300 hover:bg-slate-800 transition"
+                          className="p-1.5 rounded-lg text-text-muted hover:text-amber-500 hover:bg-surface-hover transition"
                           title="Sửa thông tin"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
@@ -536,7 +531,7 @@ export const StakeholderManagerModal: React.FC<StakeholderManagerModalProps> = (
                         <button
                           type="button"
                           onClick={() => handleDelete(s)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition"
+                          className="p-1.5 rounded-lg text-text-muted hover:text-rose-500 hover:bg-surface-hover transition"
                           title="Xóa người này"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -551,14 +546,14 @@ export const StakeholderManagerModal: React.FC<StakeholderManagerModalProps> = (
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3 border-t border-slate-800 bg-slate-950/60 flex items-center justify-between text-xs text-slate-400">
+        <div className="px-6 py-3 border-t border-border-subtle bg-surface-subtle/50 flex items-center justify-between text-xs text-text-secondary">
           <span>
             💡 Mẹo: Khi chọn Người nhắn, AI sẽ tự động liên kết các yêu cầu và quyết định trích xuất vào hồ sơ của họ.
           </span>
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition font-medium cursor-pointer"
+            className="px-4 py-1.5 rounded-xl bg-surface hover:bg-surface-hover border border-border-default text-text-primary transition font-medium cursor-pointer"
           >
             Đóng
           </button>

@@ -12,6 +12,12 @@ from app.api.projects import router as projects_router
 from app.api.providers import router as providers_router
 from app.api.translate import router as translate_router
 from app.api.intelligence import router as intelligence_router
+from app.qa.router import router as qa_router
+from app.qa.execution_router import router as qa_exec_router
+from app.qa.api_router import router as qa_api_router
+from app.qa.ui_router import router as qa_ui_router
+from app.qa.regression_router import router as qa_reg_router
+from app.qa.data_router import router as qa_data_router
 from app.core.config import settings
 from app.core.database import init_db, async_session_maker
 from app.core.logging import logger
@@ -114,6 +120,12 @@ app.include_router(dashboard_router)
 app.include_router(documents_router)
 app.include_router(integrations_router)
 app.include_router(intelligence_router)
+app.include_router(qa_router)
+app.include_router(qa_exec_router)
+app.include_router(qa_api_router)
+app.include_router(qa_ui_router)
+app.include_router(qa_reg_router)
+app.include_router(qa_data_router)
 
 @app.get("/api/health")
 async def health_check():

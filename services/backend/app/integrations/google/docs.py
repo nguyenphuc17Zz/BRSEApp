@@ -1,4 +1,5 @@
-from typing import Dict, List, Any, Optional, Tuple
+import asyncio
+from typing import Dict, List, Any, Optional, Tuple, Callable
 import httpx
 import json
 import re
@@ -437,15 +438,20 @@ class GoogleDocsService:
                             if translate_images:
                                 try:
                                     from app.documents.ocr.image_translator import image_translator
-                                    trans_bytes = await image_translator.process_image(
-                                        image_bytes=img_bytes,
-                                        src_lang=source_lang,
-                                        tgt_lang=target_lang,
-                                        ocr_engine=ocr_engine,
-                                        provider=provider
+                                    trans_bytes = await asyncio.wait_for(
+                                        image_translator.process_image(
+                                            image_bytes=img_bytes,
+                                            src_lang=source_lang,
+                                            tgt_lang=target_lang,
+                                            ocr_engine=ocr_engine,
+                                            provider=provider
+                                        ),
+                                        timeout=25.0
                                     )
                                     if trans_bytes and trans_bytes != img_bytes:
                                         img_bytes = trans_bytes
+                                except asyncio.TimeoutError:
+                                    logger.warning("Timeout (25s) translating inserted doc image, keeping original.")
                                 except Exception as ocr_err:
                                     logger.warning(f"Could not translate text in inserted image: {ocr_err}")
 
@@ -848,7 +854,8 @@ Return JSON matching:
         target_lang: str = "ja",
         ocr_engine: str = "paddleocr",
         provider: Any = None,
-        is_mock: bool = False
+        is_mock: bool = False,
+        on_progress: Optional[Callable[[str], Any]] = None
     ):
         """Finds all inline images across all tabs of a Google Doc, translates them via ImageTranslator, and replaces them via replaceImage."""
         if is_mock:
@@ -885,9 +892,18 @@ Return JSON matching:
 
         logger.info(f"Found {len(images_to_process)} embedded images to translate in Google Doc {copy_document_id}.")
 
+        total_imgs = len(images_to_process)
         headers = {"Authorization": f"Bearer {access_token}"}
         async with httpx.AsyncClient(timeout=60.0) as http:
-            for obj_id, content_uri, tab_id in images_to_process:
+            for idx, (obj_id, content_uri, tab_id) in enumerate(images_to_process):
+                if on_progress:
+                    try:
+                        if asyncio.iscoroutinefunction(on_progress):
+                            await on_progress(f"Đang dịch hình ảnh & sơ đồ tài liệu ({idx + 1}/{total_imgs})...")
+                        else:
+                            on_progress(f"Đang dịch hình ảnh & sơ đồ tài liệu ({idx + 1}/{total_imgs})...")
+                    except Exception:
+                        pass
                 try:
                     img_res = await http.get(content_uri)
                     if img_res.status_code != 200:
@@ -897,13 +913,20 @@ Return JSON matching:
                     if len(img_bytes) < 100:
                         continue
 
-                    translated_bytes = await image_translator.process_image(
-                        image_bytes=img_bytes,
-                        src_lang=source_lang,
-                        tgt_lang=target_lang,
-                        ocr_engine=ocr_engine,
-                        provider=provider
-                    )
+                    try:
+                        translated_bytes = await asyncio.wait_for(
+                            image_translator.process_image(
+                                image_bytes=img_bytes,
+                                src_lang=source_lang,
+                                tgt_lang=target_lang,
+                                ocr_engine=ocr_engine,
+                                provider=provider
+                            ),
+                            timeout=25.0
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning(f"Timeout (25s) translating image {obj_id} in Google Doc, skipping.")
+                        continue
 
                     if not translated_bytes or translated_bytes == img_bytes:
                         logger.info(f"Image {obj_id} was unchanged or no text detected.")

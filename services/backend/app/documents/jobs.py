@@ -1,7 +1,7 @@
 import asyncio
 import json
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Callable
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -229,6 +229,16 @@ class JobManager:
                     custom_filename=custom_filename
                 )
 
+                async def _update_render_stage(stage_desc: str):
+                    try:
+                        async with async_session_maker() as stage_db:
+                            j_cur = (await stage_db.execute(select(DocumentJob).where(DocumentJob.id == job_id))).scalar_one_or_none()
+                            if j_cur:
+                                j_cur.current_stage = stage_desc
+                                await stage_db.commit()
+                    except Exception as st_err:
+                        logger.debug(f"Render stage update notice: {st_err}")
+
                 await self._render_output_document(
                     file_type=doc_file.file_type,
                     working_copy=working_copy,
@@ -237,7 +247,8 @@ class JobManager:
                     options=job_options,
                     src_lang=job.source_language,
                     tgt_lang=job.target_language,
-                    provider=provider
+                    provider=provider,
+                    on_progress=_update_render_stage
                 )
 
                 document_storage.cleanup_working(working_copy)
@@ -318,6 +329,7 @@ CRITICAL REQUIREMENTS:
 1. Every segment MUST be translated into {tgt_lang_name}. Do NOT output in {src_lang_name}.
 2. Do NOT alter, remove, or translate any protected placeholders formatted as __PROTECTED_...__.
 3. Preserve formatting, numbers, bullet styles, and tags identically.
+4. If a segment contains inline tags like <r0>...</r0>, <r1>...</r1>, keep the exact corresponding tags enclosing the translated phrases without removing or dropping them.
 
 Segments to translate (JSON):
 {json.dumps(items_payload, ensure_ascii=False)}
@@ -413,6 +425,51 @@ Return JSON matching this exact structure:
                 seg.status = "failed"
                 seg.error_message = err_msg
 
+        # Fallback single-item retry for any omitted or failed segments in this batch
+        unresolved_segs = [s for s in to_translate if s.status != "translated"]
+        if unresolved_segs:
+            logger.info(f"Retrying {len(unresolved_segs)} unresolved segments individually...")
+            for seg in unresolved_segs:
+                token_map = json.loads(seg.protected_tokens_json or "{}")
+                single_item = [{"id": seg.segment_index, "text": seg.source_text, "context": seg.context_hint}]
+                single_prompt = f"""Translate this document segment from {src_lang_name} to {tgt_lang_name} with tone/style: {job.style}.
+
+CRITICAL REQUIREMENTS:
+1. Translate strictly into {tgt_lang_name}. Do NOT output in {src_lang_name}.
+2. Do NOT alter, remove, or translate any protected placeholders formatted as __PROTECTED_...__.
+3. Preserve formatting, numbers, bullet styles, and tags identically.
+4. Keep any inline tags like <r0>...</r0> enclosing the corresponding translated phrases.
+
+Segment:
+{json.dumps(single_item, ensure_ascii=False)}
+
+Return JSON:
+{{
+  "translations": [
+    {{"id": {seg.segment_index}, "translated": "{example_translated}"}}
+  ]
+}}"""
+                try:
+                    s_resp = await provider.generate(
+                        prompt=single_prompt,
+                        system_instruction=system_instruction,
+                        model=job.model,
+                        temperature=0.2,
+                        json_mode=True
+                    )
+                    s_parsed = clean_json_response(s_resp.text)
+                    s_list = s_parsed.get("translations", [])
+                    if s_list and "translated" in s_list[0] and str(s_list[0]["translated"]).strip():
+                        s_raw = s_list[0]["translated"]
+                        restored_text, _ = TokenProtector.restore_tokens(s_raw, token_map)
+                        seg.translated_text = restored_text
+                        seg.status = "translated"
+                        seg.error_message = None
+                        if restored_text.strip() != seg.source_text.strip():
+                            translation_cache[seg.source_text] = restored_text
+                except Exception as s_err:
+                    logger.warning(f"Single segment retry failed for segment {seg.segment_index}: {s_err}")
+
         await db.commit()
 
     def _get_parser(self, file_type: str):
@@ -436,7 +493,8 @@ Return JSON matching this exact structure:
         options: Optional[Dict[str, Any]] = None,
         src_lang: str = "ja",
         tgt_lang: str = "vi",
-        provider: Any = None
+        provider: Any = None,
+        on_progress: Optional[Callable[[str], Any]] = None
     ):
         t = file_type.lower().replace(".", "")
         # Build lookup by location key
@@ -453,6 +511,12 @@ Return JSON matching this exact structure:
                 key = f"paragraph_{loc.get('p_index')}"
             elif loc_type == "table_cell":
                 key = f"table_cell_{loc.get('t_index')}_{loc.get('r_index')}_{loc.get('c_index')}"
+            elif loc_type == "docx_header":
+                key = f"docx_header_{loc.get('s_index')}_{loc.get('p_index')}"
+            elif loc_type == "docx_footer":
+                key = f"docx_footer_{loc.get('s_index')}_{loc.get('p_index')}"
+            elif loc_type == "docx_textbox":
+                key = f"docx_textbox_{loc.get('tb_index')}"
             elif loc_type == "excel_cell":
                 key = f"excel_cell_{loc.get('sheet')}_{loc.get('row')}_{loc.get('column')}"
             elif loc_type == "excel_formula_string":
@@ -465,6 +529,8 @@ Return JSON matching this exact structure:
                 key = f"pptx_speaker_notes_{loc.get('slide_index')}_{loc.get('paragraph_index')}"
             elif loc_type == "pdf_text_block":
                 key = f"pdf_text_block_{loc.get('page_index')}_{loc.get('block_no')}"
+            elif loc_type == "pdf_toc":
+                key = f"pdf_toc_{loc.get('toc_index')}"
             else:
                 key = f"seg_{seg.segment_index}"
 
@@ -472,24 +538,42 @@ Return JSON matching this exact structure:
 
         opts = options or {}
         if t == "docx":
-            DocxRenderer.render(working_copy, output_path, segments_by_loc)
+            DocxRenderer.render(working_copy, output_path, segments_by_loc, tgt_lang=tgt_lang)
             # Process embedded images if translate_images option is enabled
             if opts.get("translate_images", False):
                 ocr_mode = opts.get("ocr_mode", "paddleocr")
                 try:
                     import docx
+                    from docx.parts.image import ImagePart
                     out_doc = docx.Document(str(output_path))
-                    img_parts = [p for p in out_doc.part.related_parts.values() if "image" in str(p.partname).lower()]
+                    img_parts = [
+                        p for p in out_doc.part.related_parts.values()
+                        if isinstance(p, ImagePart)
+                        or "media/" in str(p.partname).lower()
+                        or "image" in str(p.partname).lower()
+                        or getattr(p, "content_type", "").startswith("image/")
+                    ]
                     if img_parts:
                         logger.info(f"Processing {len(img_parts)} embedded images with ImageTranslator (OCR Engine: {ocr_mode})...")
                         for idx, img_p in enumerate(img_parts):
+                            if on_progress:
+                                try:
+                                    if asyncio.iscoroutinefunction(on_progress):
+                                        await on_progress(f"Đang dịch hình ảnh ({idx + 1}/{len(img_parts)})...")
+                                    else:
+                                        on_progress(f"Đang dịch hình ảnh ({idx + 1}/{len(img_parts)})...")
+                                except Exception:
+                                    pass
                             try:
-                                new_bytes = await image_translator.process_image(
-                                    image_bytes=img_p._blob,
-                                    src_lang=src_lang,
-                                    tgt_lang=tgt_lang,
-                                    ocr_engine=ocr_mode,
-                                    provider=provider
+                                new_bytes = await asyncio.wait_for(
+                                    image_translator.process_image(
+                                        image_bytes=img_p._blob,
+                                        src_lang=src_lang,
+                                        tgt_lang=tgt_lang,
+                                        ocr_engine=ocr_mode,
+                                        provider=provider
+                                    ),
+                                    timeout=45.0
                                 )
                                 if new_bytes and len(new_bytes) > 0:
                                     img_p._blob = new_bytes
@@ -507,7 +591,8 @@ Return JSON matching this exact structure:
                 options=opts,
                 src_lang=src_lang,
                 tgt_lang=tgt_lang,
-                provider=provider
+                provider=provider,
+                on_progress=on_progress
             )
         elif t == "pptx":
             await PptxRenderer.render(
@@ -517,7 +602,8 @@ Return JSON matching this exact structure:
                 options=opts,
                 src_lang=src_lang,
                 tgt_lang=tgt_lang,
-                provider=provider
+                provider=provider,
+                on_progress=on_progress
             )
         elif t == "pdf":
             await PdfRenderer.render(
@@ -528,7 +614,8 @@ Return JSON matching this exact structure:
                 options=opts,
                 src_lang=src_lang,
                 tgt_lang=tgt_lang,
-                provider=provider
+                provider=provider,
+                on_progress=on_progress
             )
 
 job_manager = JobManager()

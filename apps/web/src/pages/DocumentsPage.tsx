@@ -36,6 +36,7 @@ import { useConfirm } from '../context/ConfirmDialogContext';
 import { DocumentListSkeleton } from '../components/skeletons/DocumentListSkeleton';
 import { ProviderModelSelector } from '../components/ProviderModelSelector';
 import { getSavedProvider, getSavedModel, resolveHealthyModel } from '../utils/aiPreferences';
+import { PageHeader, Card, CardHeader, CardTitle, CardContent, Button, Badge, Modal, EmptyState, Select } from '../components/ui';
 
 interface DocumentsPageProps {
   activeProject: Project | null;
@@ -120,33 +121,24 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [jobProgress, setJobProgress] = useState<any | null>(null);
 
-  // Document Review & Segment Modal
+  // Segment Review Modal
   const [reviewDoc, setReviewDoc] = useState<DocumentItem | null>(null);
   const [reviewJob, setReviewJob] = useState<DocumentJob | null>(null);
   const [segments, setSegments] = useState<DocumentSegment[]>([]);
   const [issues, setIssues] = useState<DocumentIssue[]>([]);
-  const [segmentSearch, setSegmentSearch] = useState('');
-  const [segmentFilter, setSegmentFilter] = useState<'all' | 'translated' | 'failed' | 'issues'>('all');
-  const [isRegenerating, setIsRegenerating] = useState<string | null>(null);
   const [editingSegmentId, setEditingSegmentId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
+  const [isRegenerating, setIsRegenerating] = useState<string | null>(null);
+  const [segmentSearch, setSegmentSearch] = useState('');
+  const [segmentFilter, setSegmentFilter] = useState<'all' | 'translated' | 'failed' | 'issues'>('all');
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadDocuments();
     loadProviders();
-    loadCommonPaths();
   }, [activeProject]);
-
-  const loadCommonPaths = async () => {
-    try {
-      const paths = await apiClient.getCommonPaths();
-      setCommonPaths(paths);
-    } catch (e) {
-      console.warn('Could not load common system paths:', e);
-    }
-  };
 
   useEffect(() => {
     if (activeProject) {
@@ -165,7 +157,7 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
 
         if (['completed', 'partially_completed', 'failed', 'cancelled'].includes(prog.status)) {
           clearInterval(pollInterval);
-          loadDocuments(); // Refresh document list
+          loadDocuments();
         }
       } catch (err) {
         console.error('Failed to poll job progress:', err);
@@ -181,7 +173,6 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
       const data = await apiClient.getDocuments(activeProject?.id);
       setDocuments(data);
 
-      // Auto-attach any active job to progress tracker
       const runningDoc = data.find(d => d.active_job && ['queued', 'analyzing', 'segmenting', 'translating', 'qa', 'rendering'].includes(d.active_job.status));
       if (runningDoc && runningDoc.active_job) {
         setActiveJobId(runningDoc.active_job.id);
@@ -219,7 +210,6 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
       const doc = await apiClient.uploadDocument(file, activeProject?.id);
       await loadDocuments();
       toast.success(`Tải lên thành công: ${doc.filename}`, 'Upload Document');
-      // Auto open config modal
       openTranslateConfig(doc);
     } catch (err: any) {
       const msg = err.response?.data?.detail || 'Failed to upload document';
@@ -251,121 +241,97 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
       if (reviewDoc?.id === id) setReviewDoc(null);
       toast.success('Đã xóa tài liệu thành công');
     } catch (err: any) {
-      console.error('Failed to delete document:', err);
-      toast.error(err?.response?.data?.detail || 'Failed to delete document');
+      toast.error(err.response?.data?.detail || 'Failed to delete document');
     }
   };
-
-  const [isDeletingAll, setIsDeletingAll] = useState(false);
 
   const handleDeleteAll = async () => {
     const targetDocs = isFiltering ? filteredDocuments : documents;
     if (targetDocs.length === 0) return;
 
-    let targetDescription = '';
-    if (isFiltering) {
-      const formatLabelMap: Record<string, string> = {
-        docx: 'Word (.docx)',
-        xlsx: 'Excel (.xlsx)',
-        pptx: 'PowerPoint (.pptx)',
-        pdf: 'PDF (.pdf)',
-      };
-      const parts: string[] = [];
-      if (selectedFormatFilter !== 'all') {
-        parts.push(`định dạng ${formatLabelMap[selectedFormatFilter] || selectedFormatFilter.toUpperCase()}`);
-      }
-      if (docSearchQuery.trim()) {
-        parts.push(`từ khóa "${docSearchQuery.trim()}"`);
-      }
-      targetDescription = `đang lọc (${parts.join(', ')})`;
-    } else {
-      targetDescription = activeProject ? `thuộc dự án "${activeProject.name}"` : 'trong toàn bộ kho hệ thống';
-    }
-
+    const count = targetDocs.length;
     const ok = await confirm({
-      title: isFiltering ? `Xóa ${targetDocs.length} tài liệu đang lọc` : 'Xóa tất cả tài liệu',
-      message: `Bạn có chắc chắn muốn xóa ${targetDocs.length} tài liệu ${targetDescription}? Tất cả file gốc, bản dịch, các tác vụ và phân đoạn liên quan sẽ bị xóa vĩnh viễn và không thể hoàn tác.`,
+      title: isFiltering ? `Xóa ${count} tài liệu đang lọc` : `Xóa tất cả (${count}) tài liệu`,
+      message: isFiltering
+        ? `Bạn có chắc muốn xóa vĩnh viễn ${count} tài liệu đang hiển thị theo bộ lọc? Thao tác này không thể hoàn tác.`
+        : `Bạn có chắc muốn xóa TOÀN BỘ ${count} tài liệu trong danh sách? Toàn bộ file gốc, segments và file dịch sẽ bị xóa. Thao tác này không thể hoàn tác.`,
       isDestructive: true,
-      confirmText: isFiltering ? `Xóa đã lọc (${targetDocs.length})` : `Xóa tất cả (${targetDocs.length})`,
+      confirmText: `Xóa ${count} tài liệu`,
       cancelText: 'Hủy'
     });
     if (!ok) return;
 
     setIsDeletingAll(true);
-    try {
-      const targetIds = targetDocs.map(d => d.id);
-      const res = await apiClient.deleteAllDocuments(activeProject?.id, undefined, targetIds);
+    let successCount = 0;
+    let failCount = 0;
 
-      setDocuments(prev => prev.filter(d => !targetDocs.some(td => td.id === d.id)));
-      if (configDoc && targetDocs.some(d => d.id === configDoc.id)) setConfigDoc(null);
-      if (reviewDoc && targetDocs.some(d => d.id === reviewDoc.id)) setReviewDoc(null);
-      if (activeJobId && targetDocs.some(d => d.active_job?.id === activeJobId)) {
-        setActiveJobId(null);
-        setJobProgress(null);
+    for (const doc of targetDocs) {
+      try {
+        await apiClient.deleteDocument(doc.id);
+        successCount++;
+      } catch (err) {
+        console.error(`Failed to delete document ${doc.id}:`, err);
+        failCount++;
       }
-      toast.success(res?.message || `Đã xóa thành công ${res?.deleted_count || targetDocs.length} tài liệu`);
-    } catch (err: any) {
-      console.error('Failed to delete documents:', err);
-      toast.error(err?.response?.data?.detail || 'Không thể xóa tài liệu');
-    } finally {
-      setIsDeletingAll(false);
-      await loadDocuments();
+    }
+
+    setIsDeletingAll(false);
+    await loadDocuments();
+    setConfigDoc(null);
+    setReviewDoc(null);
+
+    if (failCount === 0) {
+      toast.success(`Đã xóa thành công ${successCount} tài liệu`);
+    } else {
+      toast.warning(`Đã xóa ${successCount} tài liệu, thất bại ${failCount} tài liệu`);
     }
   };
 
   const openTranslateConfig = (doc: DocumentItem) => {
     setConfigDoc(doc);
-    setSelectedProjectId(doc.project_id || activeProject?.id || '');
-    if (doc.file_type === 'xlsx') {
-      setSelectedSheets([]);
-    }
-    const detected = doc.detected_language || 'ja';
-    setSourceLang(detected);
-    // Smart pair defaults: if detected is vi -> target ja; if ja -> target vi; if en -> target vi
-    const defaultTgt = detected === 'vi' ? 'ja' : 'vi';
-    setTargetLang(defaultTgt);
-    setTargetFilename(computeDefaultFilename(doc.filename, defaultTgt));
+    const initialTgt = 'vi';
+    setTargetLang(initialTgt);
+    setTargetFilename(computeDefaultFilename(doc.filename, initialTgt));
     setIsFilenameEdited(false);
 
-    if (providers.length > 0) {
-      const healthy = resolveHealthyModel(providers);
-      setSelectedProvider(healthy.provider);
-      setSelectedModel(healthy.model);
+    if (doc.detected_language) {
+      setSourceLang(doc.detected_language);
+    } else {
+      setSourceLang('auto');
     }
 
-    if (['docx', 'xlsx', 'pdf'].includes(doc.file_type)) {
-      setTranslateImages(true);
-      setOcrEngine('paddleocr');
-    }
-  };
-
-  const handleSelectTargetLang = (newTgt: string) => {
-    setTargetLang(newTgt);
-    if (!isFilenameEdited && configDoc) {
-      setTargetFilename(computeDefaultFilename(configDoc.filename, newTgt));
-    }
+    apiClient.getCommonPaths().then(paths => {
+      setCommonPaths(paths);
+      if (!customOutputDir && paths?.default_output) {
+        setCustomOutputDir('');
+      }
+    }).catch(console.warn);
   };
 
   const handleSwapLanguages = () => {
-    const currentSrc = sourceLang === 'auto' ? (configDoc?.detected_language || 'ja') : sourceLang;
-    const currentTgt = targetLang;
-    setSourceLang(currentTgt);
-    setTargetLang(currentSrc);
-    if (!isFilenameEdited && configDoc) {
-      setTargetFilename(computeDefaultFilename(configDoc.filename, currentSrc));
+    const effectiveSrc = sourceLang === 'auto' ? (configDoc?.detected_language || 'ja') : sourceLang;
+    const newTarget = effectiveSrc === 'vi' ? 'ja' : 'vi';
+    const newSource = targetLang;
+    setSourceLang(newSource);
+    setTargetLang(newTarget);
+    if (configDoc && !isFilenameEdited) {
+      setTargetFilename(computeDefaultFilename(configDoc.filename, newTarget));
+    }
+  };
+
+  const handleSelectTargetLang = (langId: string) => {
+    setTargetLang(langId);
+    if (configDoc && !isFilenameEdited) {
+      setTargetFilename(computeDefaultFilename(configDoc.filename, langId));
     }
   };
 
   const startTranslation = async () => {
     if (!configDoc) return;
-    const resolvedSource = sourceLang === 'auto' ? (configDoc.detected_language || 'ja') : sourceLang;
-    if (resolvedSource === targetLang) {
-      toast.error('Ngôn ngữ nguồn và ngôn ngữ đích không được trùng nhau. Vui lòng chọn cặp ngôn ngữ hợp lệ.');
-      return;
-    }
+
     try {
       const job = await apiClient.startDocumentTranslation(configDoc.id, {
-        source_language: resolvedSource,
+        source_language: sourceLang,
         target_language: targetLang,
         project_id: selectedProjectId || null,
         style,
@@ -536,25 +502,48 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'completed':
-        return <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Completed</span>;
+        return (
+          <Badge variant="success" size="sm">
+            <CheckCircle2 className="w-3 h-3 mr-1" /> Completed
+          </Badge>
+        );
       case 'partially_completed':
-        return <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> With Warnings</span>;
+        return (
+          <Badge variant="warning" size="sm">
+            <AlertTriangle className="w-3 h-3 mr-1" /> With Warnings
+          </Badge>
+        );
       case 'failed':
-        return <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center gap-1"><XCircle className="w-3 h-3" /> Failed</span>;
+        return (
+          <Badge variant="danger" size="sm">
+            <XCircle className="w-3 h-3 mr-1" /> Failed
+          </Badge>
+        );
       case 'paused':
-        return <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-500/20 text-slate-400 border border-slate-500/30 flex items-center gap-1"><Pause className="w-3 h-3" /> Paused</span>;
+        return (
+          <Badge variant="neutral" size="sm">
+            <Pause className="w-3 h-3 mr-1" /> Paused
+          </Badge>
+        );
       case 'translating':
       case 'analyzing':
       case 'segmenting':
       case 'rendering':
       case 'qa':
-        return <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-500/20 text-sky-400 border border-sky-500/30 flex items-center gap-1 animate-pulse"><RefreshCw className="w-3 h-3 animate-spin" /> {status.toUpperCase()}</span>;
+        return (
+          <Badge variant="primary" size="sm" className="animate-pulse">
+            <RefreshCw className="w-3 h-3 mr-1 animate-spin" /> {status.toUpperCase()}
+          </Badge>
+        );
       default:
-        return <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-800 text-slate-400 border border-slate-700">{status}</span>;
+        return (
+          <Badge variant="default" size="sm">
+            {status}
+          </Badge>
+        );
     }
   };
 
-  // Filter segments for review modal
   const filteredSegments = segments.filter(seg => {
     if (segmentSearch) {
       const q = segmentSearch.toLowerCase();
@@ -569,57 +558,49 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
   });
 
   return (
-    <div className="flex-1 flex flex-col h-screen overflow-hidden bg-slate-950 text-slate-100">
+    <div className="flex-1 flex flex-col h-full overflow-hidden bg-canvas">
       {/* Top Header */}
-      <header className="px-6 py-4 border-b border-slate-800/80 bg-slate-900/60 flex items-center justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-lg font-bold tracking-tight text-white flex items-center gap-2">
-              <Layers className="w-5 h-5 text-sky-400" />
-              Document Translation Engine
-            </h1>
-            <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-sky-500/20 text-sky-400 border border-sky-500/30">
-              Phase 2 Production
-            </span>
-          </div>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Structure & layout-preserving translation for DOCX, XLSX, PPTX, and PDF (with OCR fallback)
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleFileUpload}
-            accept=".docx,.xlsx,.pptx,.pdf"
-            className="hidden"
-          />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isUploading}
-            className={`px-3.5 py-2 rounded-lg bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white font-medium text-xs shadow-lg shadow-sky-600/20 flex items-center gap-2 transition-all disabled:opacity-50 ${isUploading ? 'btn-loading-shimmer shadow-sky-500/50' : ''}`}
-          >
-            {isUploading ? (
-              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            ) : (
-              <UploadCloud className="w-4 h-4" />
-            )}
-            <span>{isUploading ? 'Processing Document...' : 'Upload Document'}</span>
-          </button>
-        </div>
-      </header>
+      <div className="p-4 sm:p-6 pb-0 flex-shrink-0">
+        <PageHeader
+          title="Dịch tài liệu"
+          actions={
+            <>
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+                accept=".docx,.xlsx,.pptx,.pdf"
+                className="hidden"
+              />
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+                isLoading={isUploading}
+                leftIcon={<UploadCloud className="w-4 h-4" />}
+              >
+                {isUploading ? 'Đang tải lên...' : 'Tải tài liệu'}
+              </Button>
+            </>
+          }
+        />
+      </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-6">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
         {/* Upload Error Banner */}
         {uploadError && (
-          <div className="p-3 rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs flex items-center justify-between">
+          <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-rose-400" />
+              <AlertCircle className="w-4 h-4 text-rose-500 flex-shrink-0" />
               <span>{uploadError}</span>
             </div>
-            <button onClick={() => setUploadError(null)} className="text-rose-400 hover:text-rose-200">
+            <button
+              type="button"
+              onClick={() => setUploadError(null)}
+              className="text-text-muted hover:text-text-primary p-1"
+            >
               ✕
             </button>
           </div>
@@ -627,48 +608,44 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
 
         {/* Failed Job Banner */}
         {jobProgress && jobProgress.status === 'failed' && (
-          <div className="bg-rose-950/40 rounded-xl border border-rose-500/50 p-5 shadow-xl shadow-rose-950/40 relative overflow-hidden">
-            <div className="flex items-start justify-between">
+          <div className="bg-rose-500/10 rounded-xl border border-rose-500/30 p-5 relative overflow-hidden">
+            <div className="flex items-start justify-between gap-4">
               <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-lg bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400 flex-shrink-0 mt-0.5">
-                  <XCircle className="w-6 h-6" />
+                <div className="w-9 h-9 rounded-lg bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-600 dark:text-rose-400 flex-shrink-0 mt-0.5">
+                  <XCircle className="w-5 h-5" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h3 className="text-sm font-semibold text-white">
+                    <h3 className="text-sm font-semibold text-text-primary">
                       Tiến trình dịch tài liệu thất bại (Translation Failed)
                     </h3>
-                    <span className="text-[10px] px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 font-mono border border-rose-500/30 uppercase font-semibold">
-                      FAILED
-                    </span>
+                    <Badge variant="danger" size="sm">FAILED</Badge>
                   </div>
-                  <p className="text-xs text-rose-300 mt-1.5 bg-rose-900/40 p-2.5 rounded-lg border border-rose-500/20 font-mono">
+                  <p className="text-xs text-rose-600 dark:text-rose-300 mt-1.5 bg-rose-500/10 p-2.5 rounded-lg border border-rose-500/20 font-mono">
                     {jobProgress.error_message || jobProgress.current_stage || "Lỗi mô hình AI (quá tải hoặc hết hạn ngạch)."}
                   </p>
-                  <p className="text-[11px] text-slate-400 mt-2">
-                    Hệ thống đã dừng lại an toàn và không tạo file rác. Bạn có thể bấm nút bên dưới để đổi sang mô hình khác (ví dụ: Groq hoặc Gemini 3.7) và thử lại.
+                  <p className="text-[11px] text-text-secondary mt-2">
+                    Hệ thống đã dừng lại an toàn. Bạn có thể đổi sang mô hình khác (ví dụ: Groq hoặc Gemini Flash) và thử lại.
                   </p>
                 </div>
               </div>
 
               <div className="flex items-center gap-2 flex-shrink-0">
-                <button
-                  type="button"
+                <Button
+                  variant="primary"
+                  size="sm"
                   onClick={() => {
                     const failedDoc = documents.find(d => d.id === jobProgress.document_id || d.active_job?.id === jobProgress.id);
-                    if (failedDoc) {
-                      openTranslateConfig(failedDoc);
-                    }
+                    if (failedDoc) openTranslateConfig(failedDoc);
                   }}
-                  className="px-3.5 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md shadow-sky-600/30 transition-all"
+                  leftIcon={<RotateCcw className="w-3.5 h-3.5" />}
                 >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  <span>Đổi Model & Thử Lại</span>
-                </button>
+                  Đổi Model & Thử Lại
+                </Button>
                 <button
                   type="button"
                   onClick={() => setJobProgress(null)}
-                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-xs"
+                  className="p-1 rounded-md text-text-muted hover:text-text-primary"
                 >
                   ✕
                 </button>
@@ -679,104 +656,96 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
 
         {/* Active Job Progress Widget */}
         {jobProgress && ['queued', 'analyzing', 'segmenting', 'translating', 'qa', 'rendering'].includes(jobProgress.status) && (
-          <div className="bg-gradient-to-r from-slate-900 to-slate-850 rounded-xl border border-sky-500/40 p-5 shadow-xl shadow-sky-950/40 relative overflow-hidden">
-            <div className="absolute top-0 left-0 right-0 h-1 bg-slate-800">
+          <Card className="p-5 border-primary/40 relative overflow-hidden">
+            <div className="absolute top-0 left-0 right-0 h-1 bg-surface-subtle">
               <div
-                className="h-full bg-gradient-to-r from-sky-500 to-indigo-500 transition-all duration-300"
+                className="h-full bg-primary transition-all duration-300"
                 style={{ width: `${jobProgress.progress_pct}%` }}
               />
             </div>
 
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-sky-500/20 border border-sky-500/30 flex items-center justify-center text-sky-400">
-                  <RefreshCw className="w-5 h-5 animate-spin" />
+                <div className="w-9 h-9 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+                  <RefreshCw className="w-4 h-4 animate-spin" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
                     Translating Document
-                    <span className="text-[11px] px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 font-mono">
+                    <Badge variant="primary" size="sm">
                       {jobProgress.status.toUpperCase()}
-                    </span>
+                    </Badge>
                   </h3>
-                  <p className="text-xs text-slate-400">
-                    {jobProgress.current_unit && <span className="text-sky-300 font-medium">{jobProgress.current_unit} · </span>}
-                    {jobProgress.current_item && <span>Current: "{jobProgress.current_item}"</span>}
+                  <p className="text-xs text-text-secondary mt-0.5">
+                    {jobProgress.current_unit && <span className="text-primary font-medium">{jobProgress.current_unit} · </span>}
+                    {jobProgress.current_stage ? (
+                      <span className="text-primary font-medium">{jobProgress.current_stage}</span>
+                    ) : jobProgress.current_item ? (
+                      <span>Current: "{jobProgress.current_item}"</span>
+                    ) : null}
                   </p>
                 </div>
               </div>
 
               <div className="flex items-center gap-2">
                 {jobProgress.status === 'translating' ? (
-                  <button
-                    onClick={handlePauseJob}
-                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs flex items-center gap-1 transition-colors"
-                  >
-                    <Pause className="w-3.5 h-3.5" />
-                    <span>Pause</span>
-                  </button>
+                  <Button variant="secondary" size="sm" onClick={handlePauseJob} leftIcon={<Pause className="w-3.5 h-3.5" />}>
+                    Pause
+                  </Button>
                 ) : (
-                  <button
-                    onClick={handleResumeJob}
-                    className="p-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs flex items-center gap-1 transition-colors"
-                  >
-                    <Play className="w-3.5 h-3.5" />
-                    <span>Resume</span>
-                  </button>
+                  <Button variant="primary" size="sm" onClick={handleResumeJob} leftIcon={<Play className="w-3.5 h-3.5" />}>
+                    Resume
+                  </Button>
                 )}
-                <button
-                  onClick={handleCancelJob}
-                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-rose-900/50 text-rose-400 text-xs flex items-center gap-1 transition-colors"
-                >
-                  <XCircle className="w-3.5 h-3.5" />
-                  <span>Cancel</span>
-                </button>
+                <Button variant="danger" size="sm" onClick={handleCancelJob} leftIcon={<XCircle className="w-3.5 h-3.5" />}>
+                  Cancel
+                </Button>
               </div>
             </div>
 
             {/* Progress Metrics */}
-            <div className="grid grid-cols-4 gap-4 pt-2 border-t border-slate-800/80 text-xs">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-3 border-t border-border-subtle text-xs">
               <div>
-                <span className="text-slate-500 block text-[10px] uppercase font-semibold">Segments Progress</span>
-                <span className="text-white font-mono font-medium">
+                <span className="text-text-muted block text-[10px] uppercase font-semibold">Segments Progress</span>
+                <span className="text-text-primary font-mono font-medium">
                   {jobProgress.completed_segments ?? 0} / {jobProgress.total_segments ?? 0} ({jobProgress.progress_pct ?? jobProgress.progress_percent ?? 0}%)
                 </span>
               </div>
               <div>
-                <span className="text-slate-500 block text-[10px] uppercase font-semibold">QA Validation</span>
-                <span className="text-emerald-400 font-mono font-medium">{jobProgress.qa_pct ?? 0}% Checked</span>
+                <span className="text-text-muted block text-[10px] uppercase font-semibold">QA Validation</span>
+                <span className="text-emerald-600 dark:text-emerald-400 font-mono font-medium">{jobProgress.qa_pct ?? 0}% Checked</span>
               </div>
               <div>
-                <span className="text-slate-500 block text-[10px] uppercase font-semibold">Pending / Failed</span>
-                <span className="text-slate-300 font-mono font-medium">
-                  {jobProgress.pending_segments ?? Math.max(0, (jobProgress.total_segments || 0) - (jobProgress.completed_segments || 0) - (jobProgress.failed_segments || 0))} pending · <span className={(jobProgress.failed_segments || 0) > 0 ? "text-rose-400" : "text-slate-400"}>{jobProgress.failed_segments ?? 0} failed</span>
+                <span className="text-text-muted block text-[10px] uppercase font-semibold">Pending / Failed</span>
+                <span className="text-text-secondary font-mono font-medium">
+                  {jobProgress.pending_segments ?? Math.max(0, (jobProgress.total_segments || 0) - (jobProgress.completed_segments || 0) - (jobProgress.failed_segments || 0))} pending · <span className={(jobProgress.failed_segments || 0) > 0 ? "text-rose-500" : "text-text-muted"}>{jobProgress.failed_segments ?? 0} failed</span>
                 </span>
               </div>
               <div>
-                <span className="text-slate-500 block text-[10px] uppercase font-semibold">Elapsed Time</span>
-                <span className="text-slate-400 font-mono font-medium flex items-center gap-1">
+                <span className="text-text-muted block text-[10px] uppercase font-semibold">Elapsed Time</span>
+                <span className="text-text-secondary font-mono font-medium flex items-center gap-1">
                   <Clock className="w-3 h-3" /> {jobProgress.elapsed_seconds ?? 0}s
                 </span>
               </div>
             </div>
-          </div>
+          </Card>
         )}
 
         {/* Drag & Drop Upload Quick Target */}
         <div
           onClick={() => fileInputRef.current?.click()}
-          className="border-2 border-dashed border-slate-850 hover:border-sky-500/50 rounded-xl p-8 bg-slate-900/40 hover:bg-slate-900/70 transition-all cursor-pointer flex flex-col items-center justify-center text-center group"
+          className="border-2 border-dashed border-border-default hover:border-primary/50 rounded-xl p-8 bg-surface-subtle/50 hover:bg-surface-subtle transition-all cursor-pointer flex flex-col items-center justify-center text-center group"
         >
-          <div className="w-12 h-12 rounded-xl bg-slate-800 group-hover:bg-sky-600/20 text-slate-400 group-hover:text-sky-400 flex items-center justify-center transition-colors mb-3">
+          <div className="w-12 h-12 rounded-xl bg-surface-elevated border border-border-subtle group-hover:border-primary/30 text-text-muted group-hover:text-primary flex items-center justify-center transition-colors mb-3 shadow-subtle">
             <UploadCloud className="w-6 h-6" />
           </div>
-          <h3 className="text-sm font-semibold text-slate-200 group-hover:text-white transition-colors">
+          <h3 className="text-sm font-semibold text-text-primary group-hover:text-primary transition-colors">
             Drop your DOCX, XLSX, PPTX, or PDF document here
           </h3>
-          <p className="text-xs text-slate-500 mt-1 max-w-md">
+          <p className="text-xs text-text-muted mt-1 max-w-md">
             The engine automatically segments text, protects formulas/URLs/code, preserves typography & tables, and translates with context.
           </p>
-          <div className="flex items-center gap-3 mt-4 text-[11px] text-slate-400 font-medium">
+          <div className="flex items-center gap-3 mt-4 text-[11px] text-text-secondary font-medium flex-wrap justify-center">
             <span className="flex items-center gap-1.5"><FileFormatIcon type="doc" size="xs" /> Word (.docx)</span>
             <span className="flex items-center gap-1.5"><FileFormatIcon type="sheet" size="xs" /> Excel (.xlsx)</span>
             <span className="flex items-center gap-1.5"><FileFormatIcon type="slide" size="xs" /> PowerPoint (.pptx)</span>
@@ -785,51 +754,51 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
         </div>
 
         {/* Document Inventory Table */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-lg">
-          <div className="px-5 py-3 border-b border-slate-800 flex items-center justify-between">
+        <Card className="overflow-hidden">
+          <CardHeader>
             <div className="flex items-center gap-2">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+              <CardTitle>
                 Document Repository {isFiltering ? `(${filteredDocuments.length}/${documents.length})` : `(${documents.length})`}
-              </h2>
+              </CardTitle>
               {isFiltering && (
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-400 border border-sky-500/20 font-medium">
+                <Badge variant="primary" size="sm">
                   Đang lọc
-                </span>
+                </Badge>
               )}
             </div>
             <div className="flex items-center gap-2">
               {(isFiltering ? filteredDocuments.length > 0 : documents.length > 0) && (
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={handleDeleteAll}
                   disabled={isDeletingAll}
-                  className="px-2.5 py-1 rounded-md bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 text-xs font-medium flex items-center gap-1.5 transition-colors disabled:opacity-50"
-                  title={isFiltering ? 'Xóa các tài liệu đang lọc' : 'Xóa tất cả tài liệu'}
+                  className="text-rose-600 dark:text-rose-400"
+                  leftIcon={<Trash2 className="w-3.5 h-3.5" />}
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>
-                    {isDeletingAll
-                      ? 'Đang xóa...'
-                      : isFiltering
-                      ? `Xóa đã lọc (${filteredDocuments.length})`
-                      : 'Xóa tất cả'}
-                  </span>
-                </button>
+                  {isDeletingAll
+                    ? 'Đang xóa...'
+                    : isFiltering
+                    ? `Xóa đã lọc (${filteredDocuments.length})`
+                    : 'Xóa tất cả'}
+                </Button>
               )}
               <button
+                type="button"
                 onClick={loadDocuments}
-                className="p-1 rounded text-slate-400 hover:text-white transition-colors"
+                className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-surface-hover transition-colors"
                 title="Refresh document list"
+                aria-label="Refresh document list"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
               </button>
             </div>
-          </div>
+          </CardHeader>
 
           {/* Sub-Header Toolbar: Format Classification Tabs & Search Input */}
-          <div className="px-5 py-2.5 bg-slate-900/80 border-b border-slate-800/80 flex flex-wrap items-center justify-between gap-3">
+          <div className="px-4 py-2.5 bg-surface-subtle/40 border-b border-border-subtle flex flex-wrap items-center justify-between gap-3">
             {/* Format Filter Tabs */}
-            <div className="flex items-center gap-1 overflow-x-auto py-0.5 scrollbar-none">
+            <div className="flex items-center gap-1 overflow-x-auto py-0.5">
               {(
                 [
                   { key: 'all', label: 'Tất cả', icon: null },
@@ -849,17 +818,15 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
                     onClick={() => setSelectedFormatFilter(tab.key)}
                     className={`px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all ${
                       isActive
-                        ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40 shadow-sm shadow-sky-950'
-                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent'
+                        ? 'bg-surface-elevated text-primary border border-border-subtle shadow-subtle'
+                        : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover'
                     }`}
                   >
                     {tab.icon}
                     <span>{tab.label}</span>
                     <span
-                      className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono leading-none ${
-                        isActive
-                          ? 'bg-sky-500/30 text-sky-200'
-                          : 'bg-slate-800 text-slate-400'
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-mono leading-none ${
+                        isActive ? 'bg-primary/10 text-primary font-semibold' : 'bg-surface-hover text-text-muted'
                       }`}
                     >
                       {count}
@@ -871,19 +838,19 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
 
             {/* Search Input Box */}
             <div className="relative flex-1 sm:max-w-xs min-w-[200px]">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <Search className="w-3.5 h-3.5 text-text-muted absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
                 value={docSearchQuery}
                 onChange={e => setDocSearchQuery(e.target.value)}
                 placeholder="Tìm kiếm theo tên tài liệu..."
-                className="w-full pl-8 pr-7 py-1 rounded-lg bg-slate-800/80 border border-slate-700/80 focus:border-sky-500 focus:outline-none text-xs text-slate-200 placeholder-slate-500 transition-colors"
+                className="w-full pl-8 pr-7 py-1.5 rounded-lg bg-surface border border-border-default focus:border-primary focus:outline-none text-xs text-text-primary placeholder:text-text-muted transition-colors"
               />
               {docSearchQuery && (
                 <button
                   type="button"
                   onClick={() => setDocSearchQuery('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-0.5"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary p-0.5"
                   title="Xóa tìm kiếm"
                 >
                   <X className="w-3 h-3" />
@@ -893,30 +860,44 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
           </div>
 
           {isLoading ? (
-            <DocumentListSkeleton count={4} />
-          ) : documents.length === 0 ? (
-            <div className="p-12 text-center text-slate-500 text-xs">
-              No documents uploaded yet. Upload a DOCX, XLSX, PPTX, or PDF to begin.
+            <div className="p-4">
+              <DocumentListSkeleton count={4} />
             </div>
+          ) : documents.length === 0 ? (
+            <EmptyState
+              icon={<UploadCloud className="w-6 h-6 text-text-muted" />}
+              title="No documents uploaded yet"
+              description="Upload a DOCX, XLSX, PPTX, or PDF to begin structured document translation."
+              action={
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  leftIcon={<UploadCloud className="w-4 h-4" />}
+                >
+                  Upload File
+                </Button>
+              }
+            />
           ) : filteredDocuments.length === 0 ? (
             <div className="p-10 text-center space-y-2.5">
-              <Search className="w-8 h-8 text-slate-600 mx-auto" />
-              <p className="text-slate-400 text-xs font-medium">
+              <Search className="w-8 h-8 text-text-muted mx-auto" />
+              <p className="text-text-secondary text-xs font-medium">
                 Không tìm thấy tài liệu nào phù hợp với bộ lọc hiện tại.
               </p>
-              <button
-                type="button"
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => {
                   setSelectedFormatFilter('all');
                   setDocSearchQuery('');
                 }}
-                className="px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-sky-400 text-xs font-medium border border-slate-700 transition-colors"
               >
                 Đặt lại bộ lọc
-              </button>
+              </Button>
             </div>
           ) : (
-            <div className="divide-y divide-slate-800/80">
+            <div className="divide-y divide-border-subtle">
               {filteredDocuments.map(doc => {
                 const job = doc.active_job;
                 const hasOutput = job && ['completed', 'partially_completed'].includes(job.status);
@@ -924,42 +905,42 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
                 return (
                   <div
                     key={doc.id}
-                    className="p-4 hover:bg-slate-850/40 transition-colors flex items-center justify-between gap-4"
+                    className="p-4 hover:bg-surface-hover/50 transition-colors flex items-center justify-between gap-4"
                   >
                     <div className="flex items-center gap-3.5 min-w-0">
-                      <div className="w-10 h-10 rounded-lg bg-slate-800/90 border border-slate-700/60 flex items-center justify-center flex-shrink-0 shadow-inner">
+                      <div className="w-10 h-10 rounded-lg bg-surface-subtle border border-border-subtle flex items-center justify-center flex-shrink-0 shadow-subtle">
                         {getFormatIcon(doc.file_type, doc.filename)}
                       </div>
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <h4 className="text-sm font-semibold text-white truncate" title={doc.filename}>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="text-xs sm:text-sm font-semibold text-text-primary truncate" title={doc.filename}>
                             {doc.filename}
                           </h4>
-                          <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
+                          <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-surface-subtle text-text-secondary border border-border-subtle">
                             {doc.file_type}
                           </span>
                           {job && getStatusBadge(job.status)}
                         </div>
-                        <div className="flex items-center gap-3 text-xs text-slate-400 mt-1">
+                        <div className="flex items-center gap-2.5 text-xs text-text-secondary mt-1 flex-wrap">
                           <span>{(doc.file_size / 1024).toFixed(1)} KB</span>
                           <span>·</span>
                           <span>{doc.unit_count} {doc.unit_label}</span>
                           <span>·</span>
-                          <span className="uppercase font-mono text-[10px] bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700/60">
+                          <span className="uppercase font-mono text-[10px] bg-surface-subtle px-1.5 py-0.5 rounded border border-border-subtle">
                             {job?.source_language || doc.detected_language || 'auto'} → {job?.target_language || 'vi'}
                           </span>
                           {job && (
                             <>
                               <span>·</span>
-                              <span className="text-slate-300 font-mono text-[11px]">
+                              <span className="text-text-primary font-mono text-[11px]">
                                 {job.completed_segments} / {job.total_segments} segments
                               </span>
                             </>
                           )}
                         </div>
                         {job?.error_message && job.status === 'failed' && (
-                          <div className="mt-1 text-[11px] text-rose-400 bg-rose-950/40 px-2.5 py-1 rounded border border-rose-500/20 font-mono flex items-center gap-1.5" title={job.error_message}>
-                            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 text-rose-400" />
+                          <div className="mt-1 text-[11px] text-rose-600 dark:text-rose-400 bg-rose-500/10 px-2.5 py-1 rounded border border-rose-500/20 font-mono flex items-center gap-1.5" title={job.error_message}>
+                            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 text-rose-500" />
                             <span className="truncate">{job.error_message}</span>
                           </div>
                         )}
@@ -969,59 +950,63 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
                     {/* Action Buttons */}
                     <div className="flex items-center gap-2 flex-shrink-0">
                       {job?.status === 'failed' && (
-                        <button
-                          type="button"
+                        <Button
+                          variant="outline"
+                          size="sm"
                           onClick={() => openTranslateConfig(doc)}
-                          className="px-3 py-1.5 rounded-md bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 text-xs font-medium flex items-center gap-1.5 transition-colors"
+                          leftIcon={<RotateCcw className="w-3.5 h-3.5" />}
                         >
-                          <RotateCcw className="w-3.5 h-3.5" />
-                          <span>Đổi Model / Thử lại</span>
-                        </button>
+                          Đổi Model / Thử lại
+                        </Button>
                       )}
                       {hasOutput && (
                         <>
                           <a
                             href={apiClient.getDocumentDownloadUrl(job.id)}
                             download
-                            className="px-3 py-1.5 rounded-md bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-medium flex items-center gap-1.5 transition-colors"
+                            className="inline-flex items-center justify-center font-medium rounded-lg text-xs px-2.5 py-1.5 gap-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 transition-colors"
                           >
                             <Download className="w-3.5 h-3.5" />
                             <span>Download</span>
                           </a>
-                          <button
-                            type="button"
+                          <Button
+                            variant="secondary"
+                            size="sm"
                             onClick={() => handleOpenJobFolder(job.id)}
                             title="Mở thư mục chứa file dịch trên máy tính"
-                            className="px-2.5 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-xs font-medium flex items-center gap-1.5 transition-colors"
+                            leftIcon={<FolderOpen className="w-3.5 h-3.5 text-amber-500" />}
                           >
-                            <FolderOpen className="w-3.5 h-3.5 text-amber-400" />
-                            <span>Mở thư mục</span>
-                          </button>
+                            <span className="hidden sm:inline">Mở thư mục</span>
+                          </Button>
                         </>
                       )}
 
                       {job && (
-                        <button
+                        <Button
+                          variant="secondary"
+                          size="sm"
                           onClick={() => openReviewModal(doc)}
-                          className="px-3 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-medium flex items-center gap-1.5 transition-colors"
+                          leftIcon={<Eye className="w-3.5 h-3.5 text-primary" />}
                         >
-                          <Eye className="w-3.5 h-3.5 text-sky-400" />
-                          <span>Review & Edit</span>
-                        </button>
+                          <span className="hidden sm:inline">Review & Edit</span>
+                        </Button>
                       )}
 
-                      <button
+                      <Button
+                        variant={job ? 'outline' : 'primary'}
+                        size="sm"
                         onClick={() => openTranslateConfig(doc)}
-                        className="px-3 py-1.5 rounded-md bg-sky-600/20 hover:bg-sky-600/30 text-sky-300 border border-sky-500/30 text-xs font-medium flex items-center gap-1.5 transition-colors"
+                        leftIcon={<Sparkles className="w-3.5 h-3.5" />}
                       >
-                        <Sparkles className="w-3.5 h-3.5" />
                         <span>{job ? 'Re-Translate' : 'Translate'}</span>
-                      </button>
+                      </Button>
 
                       <button
+                        type="button"
                         onClick={(e) => handleDelete(doc.id, e)}
-                        className="p-1.5 rounded-md hover:bg-rose-900/30 text-slate-500 hover:text-rose-400 transition-colors"
+                        className="p-1.5 rounded-lg hover:bg-rose-500/10 text-text-muted hover:text-rose-500 transition-colors"
                         title="Delete document"
+                        aria-label="Delete document"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -1031,690 +1016,662 @@ export const DocumentsPage: React.FC<DocumentsPageProps> = ({ activeProject, pro
               })}
             </div>
           )}
-        </div>
+        </Card>
       </div>
 
       {/* Translation Configuration Modal */}
-      {configDoc && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl max-w-lg w-full overflow-hidden flex flex-col">
-            <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-lg bg-slate-800/90 border border-slate-700/60 flex items-center justify-center shadow-inner flex-shrink-0">
-                  <FileFormatIcon type={configDoc.file_type} name={configDoc.filename} size="sm" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-semibold text-white">Translate Document</h3>
-                  <p className="text-xs text-slate-400 truncate max-w-xs">{configDoc.filename}</p>
-                </div>
+      <Modal
+        isOpen={Boolean(configDoc)}
+        onClose={() => setConfigDoc(null)}
+        title={
+          configDoc && (
+            <div className="flex items-center gap-2.5">
+              <FileFormatIcon type={configDoc.file_type} name={configDoc.filename} size="sm" />
+              <div>
+                <span className="font-semibold text-text-primary text-sm">Translate Document</span>
+                <p className="text-xs text-text-secondary truncate max-w-xs">{configDoc.filename}</p>
               </div>
-              <button
-                onClick={() => setConfigDoc(null)}
-                className="text-slate-400 hover:text-white text-sm"
-              >
-                ✕
-              </button>
             </div>
+          )
+        }
+        size="lg"
+        footer={
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setConfigDoc(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={startTranslation}
+              leftIcon={<Sparkles className="w-3.5 h-3.5" />}
+            >
+              Start Translation Job
+            </Button>
+          </>
+        }
+      >
+        {configDoc && (
+          <div className="space-y-4 text-xs">
+            {/* Language Configuration: Source & Target */}
+            <div className="p-3.5 bg-surface-subtle rounded-xl border border-border-subtle space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-text-primary font-semibold flex items-center gap-1.5 text-xs">
+                  <Languages className="w-4 h-4 text-primary" />
+                  Cặp ngôn ngữ dịch thuật (Language Pair)
+                </span>
+                {configDoc.detected_language && (
+                  <Badge variant="primary" size="sm">
+                    Tự động phát hiện: {configDoc.detected_language === 'ja' ? '🇯🇵 Tiếng Nhật' : configDoc.detected_language === 'vi' ? '🇻🇳 Tiếng Việt' : '🇬🇧 English'}
+                  </Badge>
+                )}
+              </div>
 
-            <div className="p-5 space-y-4 text-xs overflow-y-auto max-h-[70vh]">
-              {/* Language Configuration: Source & Target */}
-              <div className="p-3.5 bg-slate-850 rounded-xl border border-slate-700/80 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-300 font-semibold flex items-center gap-1.5 text-xs">
-                    <Languages className="w-4 h-4 text-sky-400" />
-                    Cặp ngôn ngữ dịch thuật (Language Pair)
-                  </span>
-                  {configDoc.detected_language && (
-                    <span className="text-[10px] px-2 py-0.5 rounded bg-sky-500/15 text-sky-300 border border-sky-500/30 font-medium">
-                      Tự động phát hiện: {configDoc.detected_language === 'ja' ? '🇯🇵 Tiếng Nhật' : configDoc.detected_language === 'vi' ? '🇻🇳 Tiếng Việt' : '🇬🇧 English'}
-                    </span>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-[1fr,auto,1fr] gap-2 items-center">
-                  {/* Source Language */}
-                  <div>
-                    <label className="block text-[11px] text-slate-400 font-medium mb-1">
-                      Ngôn ngữ nguồn (Source)
-                    </label>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {[
-                        { id: 'ja', label: '🇯🇵 Nhật' },
-                        { id: 'vi', label: '🇻🇳 Việt' },
-                        { id: 'en', label: '🇬🇧 Anh' }
-                      ].map(lang => {
-                        const isSelected = (sourceLang === lang.id) || (sourceLang === 'auto' && (configDoc.detected_language || 'ja') === lang.id);
-                        return (
-                          <button
-                            key={lang.id}
-                            type="button"
-                            onClick={() => {
-                              setSourceLang(lang.id);
-                              if (targetLang === lang.id) {
-                                setTargetLang(lang.id === 'vi' ? 'ja' : 'vi');
-                              }
-                            }}
-                            className={`p-2 rounded-lg border text-center transition-all text-xs ${
-                              isSelected
-                                ? 'bg-sky-600/30 border-sky-500 text-white font-semibold shadow-sm'
-                                : 'bg-slate-800/60 border-slate-700/80 text-slate-300 hover:bg-slate-800 hover:text-white'
-                            }`}
-                          >
-                            {lang.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Swap Button */}
-                  <div className="flex items-center justify-center pt-5">
-                    <button
-                      type="button"
-                      onClick={handleSwapLanguages}
-                      title="Đảo ngược cặp ngôn ngữ"
-                      className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-sky-400 transition-all active:scale-95 shadow-sm"
-                    >
-                      <ArrowRightLeft className="w-4 h-4" />
-                    </button>
-                  </div>
-
-                  {/* Target Language */}
-                  <div>
-                    <label className="block text-[11px] text-slate-400 font-medium mb-1">
-                      Ngôn ngữ đích (Target)
-                    </label>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {[
-                        { id: 'vi', label: '🇻🇳 Việt' },
-                        { id: 'ja', label: '🇯🇵 Nhật' },
-                        { id: 'en', label: '🇬🇧 Anh' }
-                      ].map(lang => (
+              <div className="grid grid-cols-1 md:grid-cols-[1fr,auto,1fr] gap-2 items-center">
+                {/* Source Language */}
+                <div>
+                  <label className="block text-[11px] text-text-secondary font-medium mb-1">
+                    Ngôn ngữ nguồn (Source)
+                  </label>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {[
+                      { id: 'ja', label: '🇯🇵 Nhật' },
+                      { id: 'vi', label: '🇻🇳 Việt' },
+                      { id: 'en', label: '🇬🇧 Anh' }
+                    ].map(lang => {
+                      const isSelected = (sourceLang === lang.id) || (sourceLang === 'auto' && (configDoc.detected_language || 'ja') === lang.id);
+                      return (
                         <button
                           key={lang.id}
                           type="button"
                           onClick={() => {
-                            handleSelectTargetLang(lang.id);
-                            const currentSrc = sourceLang === 'auto' ? (configDoc.detected_language || 'ja') : sourceLang;
-                            if (currentSrc === lang.id) {
-                              setSourceLang(lang.id === 'vi' ? 'ja' : 'vi');
+                            setSourceLang(lang.id);
+                            if (targetLang === lang.id) {
+                              setTargetLang(lang.id === 'vi' ? 'ja' : 'vi');
                             }
                           }}
                           className={`p-2 rounded-lg border text-center transition-all text-xs ${
-                            targetLang === lang.id
-                              ? 'bg-emerald-600/30 border-emerald-500 text-white font-semibold shadow-sm'
-                              : 'bg-slate-800/60 border-slate-700/80 text-slate-300 hover:bg-slate-800 hover:text-white'
+                            isSelected
+                              ? 'bg-primary/10 border-primary text-primary font-semibold shadow-subtle'
+                              : 'bg-surface border-border-default text-text-secondary hover:bg-surface-hover'
                           }`}
                         >
                           {lang.label}
                         </button>
-                      ))}
-                    </div>
+                      );
+                    })}
                   </div>
                 </div>
 
-                {/* Translation Direction Banner */}
-                <div className="flex items-center justify-center gap-2 py-1.5 px-3 bg-slate-900/80 rounded-lg border border-slate-800 text-[11px] text-slate-300">
-                  <span className="font-semibold text-sky-400 uppercase font-mono">
-                    {sourceLang === 'auto' ? (configDoc.detected_language || 'JA') : sourceLang}
-                  </span>
-                  <ArrowRight className="w-3.5 h-3.5 text-slate-500" />
-                  <span className="font-semibold text-emerald-400 uppercase font-mono">
-                    {targetLang}
-                  </span>
-                  <span className="text-slate-400 text-[11px] ml-1">
-                    (Dịch từ {sourceLang === 'vi' || (sourceLang === 'auto' && configDoc.detected_language === 'vi') ? 'Tiếng Việt' : sourceLang === 'ja' || (sourceLang === 'auto' && configDoc.detected_language === 'ja') ? 'Tiếng Nhật' : 'English'} sang {targetLang === 'vi' ? 'Tiếng Việt' : targetLang === 'ja' ? 'Tiếng Nhật' : 'English'})
-                  </span>
-                </div>
-              </div>
-
-              {/* Project Workspace */}
-              <div>
-                <label className="block text-slate-400 font-semibold mb-1">Project Workspace Context</label>
-                <select
-                  value={selectedProjectId}
-                  onChange={(e) => setSelectedProjectId(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-slate-200 focus:border-sky-500 focus:outline-none"
-                >
-                  <option value="">-- Global Terminology & TM --</option>
-                  {projects.map(p => (
-                    <option key={p.id} value={p.id}>{p.name} ({p.code})</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Tone / Style */}
-              <div>
-                <label className="block text-slate-400 font-semibold mb-1">Tone & Communication Style</label>
-                <div className="grid grid-cols-4 gap-2">
-                  {['Auto', 'Polite', 'Formal', 'Technical'].map(s => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => setStyle(s)}
-                      className={`p-2 rounded-lg border text-center transition-all ${
-                        style === s
-                          ? 'bg-sky-600/30 border-sky-500 text-white font-semibold'
-                          : 'bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-800'
-                      }`}
-                    >
-                      {s}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* AI Provider & Model (Searchable Combobox) */}
-              <ProviderModelSelector
-                providers={providers}
-                selectedProvider={selectedProvider}
-                onChangeProvider={setSelectedProvider}
-                selectedModel={selectedModel}
-                onChangeModel={setSelectedModel}
-                allowAutoRouter={false}
-                layout="stacked"
-              />
-
-              {/* Format-specific configurations */}
-              {['docx', 'xlsx', 'pdf', 'pptx'].includes(configDoc.file_type) && (
-                <div className="p-3 bg-slate-850 rounded-lg border border-slate-700/80 hover:border-sky-500/50 transition-colors">
-                  <label className="flex items-start gap-3 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={translateImages}
-                      onChange={(e) => setTranslateImages(e.target.checked)}
-                      className="mt-0.5 rounded border-slate-700 text-sky-600 focus:ring-sky-500"
-                    />
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <ImageIcon className="w-4 h-4 text-sky-400" />
-                        <span className="text-slate-200 font-medium text-xs">
-                          Dịch chữ trong hình ảnh (AI Vision & Inpainting)
-                        </span>
-                        <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">
-                          BETA
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
-                        Tự động phát hiện sơ đồ kiến trúc, screenshot UI, xóa chữ cũ bằng màu nền và dán chữ dịch bằng font tiếng Nhật/Việt chuẩn.
-                      </p>
-
-                      {translateImages && (
-                        <div className="mt-2.5 pt-2 border-t border-slate-700/60 flex flex-col gap-1.5">
-                          <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-400">
-                            Công nghệ OCR bóc tách chữ trong ảnh:
-                          </span>
-                          <div className="grid grid-cols-2 gap-1.5">
-                            <button
-                              type="button"
-                              onClick={(e) => { e.preventDefault(); setOcrEngine('paddleocr'); }}
-                              className={`px-2.5 py-1.5 rounded text-[11px] text-left border transition-all ${
-                                ocrEngine === 'paddleocr'
-                                  ? 'bg-sky-500/20 border-sky-500 text-white font-medium shadow-sm'
-                                  : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'
-                              }`}
-                            >
-                              <div className="font-semibold text-sky-300 flex items-center gap-1">
-                                <span>⚡ PaddleOCR (Local)</span>
-                              </div>
-                              <div className="text-[10px] text-slate-400">Chuyên dụng tiếng Nhật & Việt</div>
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={(e) => { e.preventDefault(); setOcrEngine('gemini_vision'); }}
-                              className={`px-2.5 py-1.5 rounded text-[11px] text-left border transition-all ${
-                                ocrEngine === 'gemini_vision'
-                                  ? 'bg-sky-500/20 border-sky-500 text-white font-medium shadow-sm'
-                                  : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200'
-                              }`}
-                            >
-                              <div className="font-semibold text-slate-200 flex items-center gap-1">
-                                <span>☁️ Gemini Vision</span>
-                              </div>
-                              <div className="text-[10px] text-slate-400">Cloud Multi-modal API</div>
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </label>
-                </div>
-              )}
-
-              {configDoc.file_type === 'xlsx' && (
-                <div className="p-3 bg-slate-850 rounded-lg border border-slate-700/80">
-                  <label className="flex items-start gap-2.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={translateSheetNames}
-                      onChange={(e) => setTranslateSheetNames(e.target.checked)}
-                      className="mt-0.5 rounded border-slate-700 text-emerald-500 focus:ring-emerald-400"
-                    />
-                    <div>
-                      <span className="text-slate-200 font-medium text-xs">
-                        Dịch tên các Trang tính / Sheet (Translate Sheet Names)
-                      </span>
-                      <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
-                        Tự động dịch tên các sheet/trang tính trên thanh tab của bảng tính sang ngôn ngữ đích. Nếu bỏ chọn, giữ nguyên tên sheet gốc.
-                      </p>
-                    </div>
-                  </label>
-                </div>
-              )}
-
-              {configDoc.file_type === 'docx' && (
-                <div className="p-3 bg-slate-850 rounded-lg border border-slate-700/80">
-                  <label className="flex items-start gap-2.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={translateTabTitles}
-                      onChange={(e) => setTranslateTabTitles(e.target.checked)}
-                      className="mt-0.5 rounded border-slate-700 text-sky-500 focus:ring-sky-400"
-                    />
-                    <div>
-                      <span className="text-slate-200 font-medium text-xs">
-                        Dịch tiêu đề các Thẻ tài liệu (Translate Tab Titles)
-                      </span>
-                      <p className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
-                        Tự động dịch tên các thẻ trên thanh tab bar sang ngôn ngữ đích. Nếu bỏ chọn, giữ nguyên tên thẻ gốc.
-                      </p>
-                    </div>
-                  </label>
-                </div>
-              )}
-
-              {configDoc.file_type === 'pptx' && (
-                <div className="p-3 bg-slate-850 rounded-lg border border-slate-700/80">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={translateNotes}
-                      onChange={(e) => setTranslateNotes(e.target.checked)}
-                      className="rounded border-slate-700 text-sky-600 focus:ring-sky-500"
-                    />
-                    <span className="text-slate-200 font-medium">Translate Speaker Notes in Slides</span>
-                  </label>
-                </div>
-              )}
-
-              {configDoc.file_type === 'pdf' && (
-                <div className="p-3 bg-slate-850 rounded-lg border border-slate-700/80">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={useOcr}
-                      onChange={(e) => setUseOcr(e.target.checked)}
-                      className="rounded border-slate-700 text-sky-600 focus:ring-sky-500"
-                    />
-                    <span className="text-slate-200 font-medium">Use OCR engine for scanned / image pages</span>
-                  </label>
-                </div>
-              )}
-
-              {/* Output Filename (Customizable) */}
-              <div className="p-3 bg-slate-850 rounded-lg border border-slate-700/80 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                    <Edit3 className="w-3.5 h-3.5 text-sky-400" />
-                    <span>Tên tệp sau khi dịch (Output Filename)</span>
-                  </label>
-                  {isFilenameEdited && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (configDoc) {
-                          setTargetFilename(computeDefaultFilename(configDoc.filename, targetLang));
-                          setIsFilenameEdited(false);
-                        }
-                      }}
-                      className="text-[10px] text-sky-400 hover:text-sky-300 hover:underline flex items-center gap-1 font-medium transition-colors"
-                      title="Khôi phục lại tên gợi ý ban đầu"
-                    >
-                      <RotateCcw className="w-3 h-3" />
-                      <span>Đặt lại mặc định</span>
-                    </button>
-                  )}
-                </div>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={targetFilename}
-                    onChange={(e) => {
-                      setTargetFilename(e.target.value);
-                      setIsFilenameEdited(true);
-                    }}
-                    placeholder={`Gợi ý: ${configDoc ? computeDefaultFilename(configDoc.filename, targetLang) : ''}`}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500 font-mono shadow-inner"
-                  />
-                </div>
-                <p className="text-[10px] text-slate-400">
-                  Mặc định sẽ gắn mã ngôn ngữ <code className="text-sky-300 bg-slate-800 px-1 py-0.5 rounded font-mono">_{targetLang.toUpperCase()}</code> vào tên tệp gốc. Bạn có thể tự do chỉnh sửa tên theo ý muốn.
-                </p>
-              </div>
-
-              {/* Output Directory / Save Location */}
-              <div className="p-3 bg-slate-850 rounded-lg border border-slate-700/80 space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-slate-300 flex items-center gap-1.5">
-                    <Folder className="w-3.5 h-3.5 text-sky-400" />
-                    <span>Đường dẫn thư mục lưu file dịch (Save Location)</span>
-                  </label>
-                  <span className="text-[10px] text-slate-400">Tùy chọn</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="relative flex-1">
-                    <input
-                      type="text"
-                      value={customOutputDir}
-                      onChange={(e) => updateOutputDir(e.target.value)}
-                      placeholder="Mặc định: data/documents/output (hoặc bấm nút bên cạnh để chọn)"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500 font-mono pr-7"
-                    />
-                    {customOutputDir && (
-                      <button
-                        type="button"
-                        onClick={() => updateOutputDir('')}
-                        className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-200 text-xs"
-                        title="Xóa để dùng mặc định"
-                      >
-                        ✕
-                      </button>
-                    )}
-                  </div>
+                {/* Swap Button */}
+                <div className="flex items-center justify-center pt-5">
                   <button
                     type="button"
-                    onClick={handleBrowseFolder}
-                    disabled={isBrowsingFolder}
-                    className="px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:bg-slate-700 text-white text-xs font-medium flex items-center gap-1.5 transition-colors flex-shrink-0 shadow-sm"
-                    title="Mở cửa sổ chọn thư mục trên máy tính"
+                    onClick={handleSwapLanguages}
+                    title="Đảo ngược cặp ngôn ngữ"
+                    className="p-2 rounded-lg bg-surface hover:bg-surface-hover border border-border-default text-text-secondary hover:text-primary transition-all active:scale-95 shadow-subtle"
                   >
-                    <FolderOpen className={`w-4 h-4 ${isBrowsingFolder ? 'animate-spin' : ''}`} />
-                    <span>{isBrowsingFolder ? 'Đang chọn...' : 'Chọn thư mục...'}</span>
+                    <ArrowRightLeft className="w-4 h-4" />
                   </button>
                 </div>
-                <div className="flex items-center gap-1.5 pt-0.5 flex-wrap">
-                  <span className="text-[10px] text-slate-500">Gợi ý nhanh:</span>
-                  <button
-                    type="button"
-                    onClick={() => updateOutputDir('')}
-                    className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
-                      !customOutputDir ? 'bg-sky-600/30 text-sky-300 border-sky-500/40' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-300'
-                    }`}
-                    title="Lưu vào thư mục mặc định của dự án (data/documents/output)"
-                  >
-                    Mặc định
-                  </button>
-                  {commonPaths?.desktop && (
-                    <button
-                      type="button"
-                      onClick={() => updateOutputDir(commonPaths.desktop)}
-                      className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
-                        customOutputDir === commonPaths.desktop ? 'bg-sky-600/30 text-sky-300 border-sky-500/40' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-300'
-                      }`}
-                      title={commonPaths.desktop}
-                    >
-                      Desktop
-                    </button>
-                  )}
-                  {commonPaths?.downloads && (
-                    <button
-                      type="button"
-                      onClick={() => updateOutputDir(commonPaths.downloads)}
-                      className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
-                        customOutputDir === commonPaths.downloads ? 'bg-sky-600/30 text-sky-300 border-sky-500/40' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-300'
-                      }`}
-                      title={commonPaths.downloads}
-                    >
-                      Downloads
-                    </button>
-                  )}
-                  {commonPaths?.documents && (
-                    <button
-                      type="button"
-                      onClick={() => updateOutputDir(commonPaths.documents)}
-                      className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
-                        customOutputDir === commonPaths.documents ? 'bg-sky-600/30 text-sky-300 border-sky-500/40' : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-300'
-                      }`}
-                      title={commonPaths.documents}
-                    >
-                      Documents
-                    </button>
-                  )}
-                </div>
-              </div>
 
-              {/* Preservation Guarantees Card */}
-              <div className="p-3 bg-slate-950/60 rounded-lg border border-slate-800 text-[11px] text-slate-400 space-y-1">
-                <div className="text-slate-300 font-semibold flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                  Preservation Guarantee Active:
-                </div>
-                <p>• Excel formulas (=...) and sheet cross-references are strictly preserved.</p>
-                <p>• Inline formatting (bold, color, fonts, hyperlinks) is maintained.</p>
-                <p>• URLs, email addresses, and camelCase code tokens are protected.</p>
-              </div>
-            </div>
-
-            <div className="px-5 py-3 border-t border-slate-800 bg-slate-950/40 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setConfigDoc(null)}
-                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={startTranslation}
-                className="px-4 py-2 rounded-lg bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white text-xs font-medium shadow-lg shadow-sky-600/20 flex items-center gap-1.5 transition-all"
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>Start Translation Job</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Document Review & Segment Inspector Modal */}
-      {reviewDoc && reviewJob && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl max-w-5xl w-full h-[88vh] overflow-hidden flex flex-col">
-            {/* Header */}
-            <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-slate-800 flex items-center justify-center">
-                  {getFormatIcon(reviewDoc.file_type)}
-                </div>
+                {/* Target Language */}
                 <div>
-                  <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                    Review: {reviewDoc.filename}
-                    {getStatusBadge(reviewJob.status)}
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    {reviewJob.completed_segments} of {reviewJob.total_segments} segments translated · {issues.length} QA issues flagged
-                  </p>
+                  <label className="block text-[11px] text-text-secondary font-medium mb-1">
+                    Ngôn ngữ đích (Target)
+                  </label>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {[
+                      { id: 'vi', label: '🇻🇳 Việt' },
+                      { id: 'ja', label: '🇯🇵 Nhật' },
+                      { id: 'en', label: '🇬🇧 Anh' }
+                    ].map(lang => (
+                      <button
+                        key={lang.id}
+                        type="button"
+                        onClick={() => {
+                          handleSelectTargetLang(lang.id);
+                          const currentSrc = sourceLang === 'auto' ? (configDoc.detected_language || 'ja') : sourceLang;
+                          if (currentSrc === lang.id) {
+                            setSourceLang(lang.id === 'vi' ? 'ja' : 'vi');
+                          }
+                        }}
+                        className={`p-2 rounded-lg border text-center transition-all text-xs ${
+                          targetLang === lang.id
+                            ? 'bg-emerald-500/10 border-emerald-500 text-emerald-600 dark:text-emerald-400 font-semibold shadow-subtle'
+                            : 'bg-surface border-border-default text-text-secondary hover:bg-surface-hover'
+                        }`}
+                      >
+                        {lang.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                {['completed', 'partially_completed'].includes(reviewJob.status) && (
-                  <a
-                    href={apiClient.getDocumentDownloadUrl(reviewJob.id)}
-                    download
-                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium flex items-center gap-1.5 transition-colors shadow-sm shadow-emerald-600/20"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Download File</span>
-                  </a>
-                )}
-                <button
-                  onClick={() => setReviewDoc(null)}
-                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white"
-                >
-                  ✕
-                </button>
+              {/* Translation Direction Banner */}
+              <div className="flex items-center justify-center gap-2 py-1.5 px-3 bg-surface rounded-lg border border-border-subtle text-[11px] text-text-secondary">
+                <span className="font-semibold text-primary uppercase font-mono">
+                  {sourceLang === 'auto' ? (configDoc.detected_language || 'JA') : sourceLang}
+                </span>
+                <ArrowRight className="w-3.5 h-3.5 text-text-muted" />
+                <span className="font-semibold text-emerald-600 dark:text-emerald-400 uppercase font-mono">
+                  {targetLang}
+                </span>
               </div>
             </div>
 
-            {/* QA Issues summary banner if any */}
-            {issues.length > 0 && (
-              <div className="px-6 py-2.5 bg-amber-500/10 border-b border-amber-500/20 text-xs flex items-center justify-between text-amber-300">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
-                  <span>
-                    QA detected <strong>{issues.length}</strong> issues (e.g. text overflow or formatting warning). Inspect flagged segments below.
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5 text-[11px]">
-                  {issues.slice(0, 2).map((iss, i) => (
-                    <span key={i} className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                      {iss.category}: {iss.message}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
+            {/* Project Workspace */}
+            <div>
+              <label className="block text-text-secondary font-medium mb-1">Không gian dự án</label>
+              <Select
+                value={selectedProjectId}
+                onChange={(val) => setSelectedProjectId(val)}
+                size="md"
+                className="w-full"
+                options={[
+                  { value: '', label: '-- Toàn cục (Global) --' },
+                  ...projects.map(p => ({
+                    value: p.id,
+                    label: p.name,
+                    sublabel: p.code
+                  }))
+                ]}
+              />
+            </div>
 
-            {/* Search & Filter Toolbar */}
-            <div className="px-6 py-3 border-b border-slate-800 bg-slate-900 flex items-center justify-between gap-4">
-              <div className="relative flex-1 max-w-sm">
-                <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-500" />
-                <input
-                  type="text"
-                  value={segmentSearch}
-                  onChange={(e) => setSegmentSearch(e.target.value)}
-                  placeholder="Search segments by source or translation..."
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-9 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500"
-                />
-              </div>
-
-              <div className="flex items-center gap-1">
-                {(['all', 'translated', 'failed', 'issues'] as const).map(f => (
+            {/* Tone / Style */}
+            <div>
+              <label className="block text-text-secondary font-medium mb-1">Văn phong</label>
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { id: 'Auto', label: 'Tự động' },
+                  { id: 'Polite', label: 'Lịch sự' },
+                  { id: 'Formal', label: 'Trang trọng' },
+                  { id: 'Technical', label: 'Kỹ thuật' }
+                ].map(s => (
                   <button
-                    key={f}
-                    onClick={() => setSegmentFilter(f)}
-                    className={`px-3 py-1 rounded-md text-xs capitalize transition-colors ${
-                      segmentFilter === f
-                        ? 'bg-sky-600 text-white font-medium'
-                        : 'bg-slate-800/80 text-slate-400 hover:text-white'
+                    key={s.id}
+                    type="button"
+                    onClick={() => setStyle(s.id)}
+                    className={`p-2 rounded-lg border text-center text-xs transition-all cursor-pointer ${
+                      style === s.id
+                        ? 'bg-primary/10 border-primary text-primary font-semibold shadow-subtle'
+                        : 'bg-surface border-border-default text-text-secondary hover:bg-surface-hover'
                     }`}
                   >
-                    {f}
+                    {s.label}
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* Segments Table */}
-            <div className="flex-1 overflow-y-auto divide-y divide-slate-800/80">
-              {filteredSegments.length === 0 ? (
-                <div className="p-12 text-center text-slate-500 text-xs">
-                  {segments.length === 0 ? 'Chưa có dữ liệu phân đoạn cho tài liệu này.' : 'Không có đoạn văn nào khớp với bộ lọc hiện tại.'}
-                </div>
-              ) : (
-                filteredSegments.map(seg => {
-                  const segId = seg.segment_id || seg.id;
-                  const isEditing = editingSegmentId === segId;
-                  const isRegen = isRegenerating === segId;
+            {/* AI Provider & Model (Searchable Combobox) */}
+            <ProviderModelSelector
+              providers={providers}
+              selectedProvider={selectedProvider}
+              onChangeProvider={setSelectedProvider}
+              selectedModel={selectedModel}
+              onChangeModel={setSelectedModel}
+              allowAutoRouter={false}
+              layout="stacked"
+            />
 
-                  return (
-                    <div
-                      key={seg.id || segId}
-                      className="p-4 hover:bg-slate-850/30 transition-colors grid grid-cols-12 gap-4 items-start text-xs"
-                    >
-                      {/* Location Badge */}
-                      <div className="col-span-2">
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 block truncate" title={seg.unit_name || `Unit ${seg.unit_index}`}>
-                          {seg.unit_name || `Item ${seg.unit_index}`}
+            {/* Format-specific configurations */}
+            {['docx', 'xlsx', 'pdf', 'pptx'].includes(configDoc.file_type) && (
+              <div className="p-3 bg-surface-subtle rounded-xl border border-border-subtle hover:border-primary/40 transition-colors">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={translateImages}
+                    onChange={(e) => setTranslateImages(e.target.checked)}
+                    className="mt-0.5 rounded border-border-default text-primary focus:ring-primary"
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <ImageIcon className="w-4 h-4 text-primary" />
+                      <span className="text-text-primary font-medium text-xs">
+                        Dịch chữ trong hình ảnh (AI Vision & Inpainting)
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-text-muted mt-1 leading-relaxed">
+                      Tự động phát hiện sơ đồ kiến trúc, screenshot UI, xóa chữ cũ bằng màu nền và dán chữ dịch bằng font tiếng Nhật/Việt chuẩn.
+                    </p>
+
+                    {translateImages && (
+                      <div className="mt-2 text-[11px] px-2.5 py-1.5 rounded bg-amber-500/10 border border-amber-500/25 text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 flex-shrink-0 text-amber-500" />
+                        <span>Lưu ý: Dịch hình ảnh & sơ đồ (OCR) qua AI sẽ chạy từng ảnh một nên sẽ tốn thêm thời gian khi xuất file PDF/PPTX.</span>
+                      </div>
+                    )}
+
+                    {translateImages && (
+                      <div className="mt-2.5 pt-2 border-t border-border-subtle flex flex-col gap-1.5">
+                        <span className="text-[10px] uppercase tracking-wider font-semibold text-text-muted">
+                          Công nghệ OCR bóc tách chữ trong ảnh:
                         </span>
-                        <div className="mt-1">
-                          {seg.user_edited && (
-                            <span className="text-[9px] uppercase font-bold text-amber-400 bg-amber-500/10 px-1 py-0.2 rounded">
-                              Edited
-                            </span>
-                          )}
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <button
+                            type="button"
+                            onClick={(e) => { e.preventDefault(); setOcrEngine('paddleocr'); }}
+                            className={`px-2.5 py-1.5 rounded text-[11px] text-left border transition-all ${
+                              ocrEngine === 'paddleocr'
+                                ? 'bg-primary/10 border-primary text-primary font-medium shadow-subtle'
+                                : 'bg-surface border-border-default text-text-secondary hover:bg-surface-hover'
+                            }`}
+                          >
+                            <div className="font-semibold flex items-center gap-1">
+                              <span>⚡ PaddleOCR (Local)</span>
+                            </div>
+                            <div className="text-[10px] text-text-muted">Chuyên dụng tiếng Nhật & Việt</div>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={(e) => { e.preventDefault(); setOcrEngine('gemini_vision'); }}
+                            className={`px-2.5 py-1.5 rounded text-[11px] text-left border transition-all ${
+                              ocrEngine === 'gemini_vision'
+                                ? 'bg-primary/10 border-primary text-primary font-medium shadow-subtle'
+                                : 'bg-surface border-border-default text-text-secondary hover:bg-surface-hover'
+                            }`}
+                          >
+                            <div className="font-semibold text-text-primary flex items-center gap-1">
+                              <span>☁️ Gemini Vision</span>
+                            </div>
+                            <div className="text-[10px] text-text-muted">Cloud Multi-modal API</div>
+                          </button>
                         </div>
                       </div>
+                    )}
+                  </div>
+                </label>
+              </div>
+            )}
 
-                      {/* Source Text */}
-                      <div className="col-span-5 text-slate-200 leading-relaxed font-sans select-text">
-                        {seg.source_text}
-                      </div>
+            {configDoc.file_type === 'xlsx' && (
+              <div className="p-3 bg-surface-subtle rounded-xl border border-border-subtle">
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={translateSheetNames}
+                    onChange={(e) => setTranslateSheetNames(e.target.checked)}
+                    className="mt-0.5 rounded border-border-default text-emerald-500 focus:ring-emerald-400"
+                  />
+                  <div>
+                    <span className="text-text-primary font-medium text-xs">
+                      Dịch tên các Trang tính / Sheet (Translate Sheet Names)
+                    </span>
+                    <p className="text-[11px] text-text-muted mt-0.5 leading-relaxed">
+                      Tự động dịch tên các sheet/trang tính trên thanh tab của bảng tính sang ngôn ngữ đích.
+                    </p>
+                  </div>
+                </label>
+              </div>
+            )}
 
-                      {/* Target Text / Editor */}
-                      <div className="col-span-5 space-y-2">
-                        {isEditing ? (
-                          <div className="space-y-2">
-                            <textarea
-                              value={editingText}
-                              onChange={(e) => setEditingText(e.target.value)}
-                              rows={3}
-                              className="w-full bg-slate-800 border border-sky-500 rounded-lg p-2 text-xs text-white focus:outline-none resize-y font-sans"
-                            />
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => handleSaveSegment(segId)}
-                                className="px-2.5 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-medium transition-colors"
-                              >
-                                Save
-                              </button>
-                              <button
-                                onClick={() => setEditingSegmentId(null)}
-                                className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 text-[11px] transition-colors"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="group relative">
-                            <div className="text-emerald-300 leading-relaxed select-text min-h-[1.5rem] font-sans">
-                              {seg.target_text || <span className="text-slate-500 italic">No translation yet</span>}
-                            </div>
-                            <div className="flex items-center gap-2 mt-2">
-                              <button
-                                onClick={() => {
-                                  setEditingSegmentId(segId);
-                                  setEditingText(seg.target_text || '');
-                                }}
-                                className="text-[11px] text-slate-400 hover:text-white transition-colors underline"
-                              >
-                                Edit
-                              </button>
-                              <span className="text-slate-600">·</span>
-                              <button
-                                onClick={() => handleRegenerateSegment(segId)}
-                                disabled={isRegen}
-                                className="text-[11px] text-sky-400 hover:text-sky-300 flex items-center gap-1 transition-colors disabled:opacity-50"
-                              >
-                                <RefreshCw className={`w-3 h-3 ${isRegen ? 'animate-spin' : ''}`} />
-                                <span>{isRegen ? 'Regenerating...' : 'Regenerate'}</span>
-                              </button>
-                            </div>
-                          </div>
+            {configDoc.file_type === 'docx' && (
+              <div className="p-3 bg-surface-subtle rounded-xl border border-border-subtle">
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={translateTabTitles}
+                    onChange={(e) => setTranslateTabTitles(e.target.checked)}
+                    className="mt-0.5 rounded border-border-default text-primary focus:ring-primary"
+                  />
+                  <div>
+                    <span className="text-text-primary font-medium text-xs">
+                      Dịch tiêu đề các Thẻ tài liệu (Translate Tab Titles)
+                    </span>
+                    <p className="text-[11px] text-text-muted mt-0.5 leading-relaxed">
+                      Tự động dịch tên các thẻ trên thanh tab bar sang ngôn ngữ đích.
+                    </p>
+                  </div>
+                </label>
+              </div>
+            )}
+
+            {configDoc.file_type === 'pptx' && (
+              <div className="p-3 bg-surface-subtle rounded-xl border border-border-subtle">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={translateNotes}
+                    onChange={(e) => setTranslateNotes(e.target.checked)}
+                    className="rounded border-border-default text-primary focus:ring-primary"
+                  />
+                  <span className="text-text-primary font-medium">Translate Speaker Notes in Slides</span>
+                </label>
+              </div>
+            )}
+
+            {configDoc.file_type === 'pdf' && (
+              <div className="p-3 bg-surface-subtle rounded-xl border border-border-subtle">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={useOcr}
+                    onChange={(e) => setUseOcr(e.target.checked)}
+                    className="rounded border-border-default text-primary focus:ring-primary"
+                  />
+                  <span className="text-text-primary font-medium">Use OCR engine for scanned / image pages</span>
+                </label>
+              </div>
+            )}
+
+            {/* Output Filename (Customizable) */}
+            <div className="p-3 bg-surface-subtle rounded-xl border border-border-subtle space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
+                  <Edit3 className="w-3.5 h-3.5 text-primary" />
+                  <span>Tên tệp sau khi dịch (Output Filename)</span>
+                </label>
+                {isFilenameEdited && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (configDoc) {
+                        setTargetFilename(computeDefaultFilename(configDoc.filename, targetLang));
+                        setIsFilenameEdited(false);
+                      }
+                    }}
+                    className="text-[10px] text-primary hover:underline flex items-center gap-1 font-medium transition-colors"
+                    title="Khôi phục lại tên gợi ý ban đầu"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Đặt lại mặc định</span>
+                  </button>
+                )}
+              </div>
+              <input
+                type="text"
+                value={targetFilename}
+                onChange={(e) => {
+                  setTargetFilename(e.target.value);
+                  setIsFilenameEdited(true);
+                }}
+                placeholder={`Gợi ý: ${configDoc ? computeDefaultFilename(configDoc.filename, targetLang) : ''}`}
+                className="w-full bg-surface border border-border-default rounded-lg px-3 py-2 text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary font-mono"
+              />
+              <p className="text-[10px] text-text-muted">
+                Mặc định sẽ gắn mã ngôn ngữ <code className="text-primary bg-surface px-1 py-0.5 rounded font-mono">_{targetLang.toUpperCase()}</code> vào tên tệp gốc.
+              </p>
+            </div>
+
+            {/* Output Directory / Save Location */}
+            <div className="p-3 bg-surface-subtle rounded-xl border border-border-subtle space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-text-primary flex items-center gap-1.5">
+                  <Folder className="w-3.5 h-3.5 text-primary" />
+                  <span>Đường dẫn thư mục lưu file dịch (Save Location)</span>
+                </label>
+                <span className="text-[10px] text-text-muted">Tùy chọn</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    value={customOutputDir}
+                    onChange={(e) => updateOutputDir(e.target.value)}
+                    placeholder="Mặc định: data/documents/output"
+                    className="w-full bg-surface border border-border-default rounded-lg px-3 py-2 text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary font-mono pr-7"
+                  />
+                  {customOutputDir && (
+                    <button
+                      type="button"
+                      onClick={() => updateOutputDir('')}
+                      className="absolute right-2.5 top-2 text-text-muted hover:text-text-primary text-xs"
+                      title="Xóa để dùng mặc định"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleBrowseFolder}
+                  disabled={isBrowsingFolder}
+                  leftIcon={<FolderOpen className="w-4 h-4" />}
+                >
+                  {isBrowsingFolder ? 'Đang chọn...' : 'Chọn thư mục...'}
+                </Button>
+              </div>
+              <div className="flex items-center gap-1.5 pt-0.5 flex-wrap">
+                <span className="text-[10px] text-text-muted">Gợi ý nhanh:</span>
+                <button
+                  type="button"
+                  onClick={() => updateOutputDir('')}
+                  className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
+                    !customOutputDir ? 'bg-primary/10 text-primary border-primary/20' : 'bg-surface text-text-muted border-border-subtle hover:text-text-primary'
+                  }`}
+                >
+                  Mặc định
+                </button>
+                {commonPaths?.desktop && (
+                  <button
+                    type="button"
+                    onClick={() => updateOutputDir(commonPaths.desktop)}
+                    className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
+                      customOutputDir === commonPaths.desktop ? 'bg-primary/10 text-primary border-primary/20' : 'bg-surface text-text-muted border-border-subtle hover:text-text-primary'
+                    }`}
+                  >
+                    Desktop
+                  </button>
+                )}
+                {commonPaths?.downloads && (
+                  <button
+                    type="button"
+                    onClick={() => updateOutputDir(commonPaths.downloads)}
+                    className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${
+                      customOutputDir === commonPaths.downloads ? 'bg-primary/10 text-primary border-primary/20' : 'bg-surface text-text-muted border-border-subtle hover:text-text-primary'
+                    }`}
+                  >
+                    Downloads
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Preservation Guarantees Card */}
+            <div className="p-3 bg-surface rounded-xl border border-border-subtle text-[11px] text-text-secondary space-y-1">
+              <div className="text-text-primary font-semibold flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                Preservation Guarantee Active:
+              </div>
+              <p>• Excel formulas (=...) and sheet cross-references are strictly preserved.</p>
+              <p>• Inline formatting (bold, color, fonts, hyperlinks) is maintained.</p>
+              <p>• URLs, email addresses, and camelCase code tokens are protected.</p>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* Document Review & Segment Inspector Modal */}
+      <Modal
+        isOpen={Boolean(reviewDoc && reviewJob)}
+        onClose={() => setReviewDoc(null)}
+        title={
+          reviewDoc && reviewJob && (
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-surface-subtle flex items-center justify-center">
+                {getFormatIcon(reviewDoc.file_type)}
+              </div>
+              <div>
+                <div className="text-sm font-semibold text-text-primary flex items-center gap-2">
+                  <span>Review: {reviewDoc.filename}</span>
+                  {getStatusBadge(reviewJob.status)}
+                </div>
+                <p className="text-xs text-text-muted">
+                  {reviewJob.completed_segments} of {reviewJob.total_segments} segments translated · {issues.length} QA issues flagged
+                </p>
+              </div>
+            </div>
+          )
+        }
+        size="5xl"
+        footer={
+          <div className="w-full flex items-center justify-between text-xs text-text-muted">
+            <span>Showing {filteredSegments.length} segments</span>
+            <div className="flex items-center gap-2">
+              {reviewJob && ['completed', 'partially_completed'].includes(reviewJob.status) && (
+                <a
+                  href={apiClient.getDocumentDownloadUrl(reviewJob.id)}
+                  download
+                  className="inline-flex items-center justify-center font-medium rounded-lg text-xs px-3 py-1.5 gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white transition-colors shadow-sm"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download File</span>
+                </a>
+              )}
+              <Button variant="secondary" size="sm" onClick={() => setReviewDoc(null)}>
+                Close Review
+              </Button>
+            </div>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          {/* QA Issues summary banner if any */}
+          {issues.length > 0 && (
+            <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs flex items-center justify-between text-amber-700 dark:text-amber-300">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                <span>
+                  QA detected <strong>{issues.length}</strong> issues (e.g. text overflow or formatting warning). Inspect flagged segments below.
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 text-[11px] flex-wrap">
+                {issues.slice(0, 2).map((iss, i) => (
+                  <Badge key={i} variant="warning" size="sm">
+                    {iss.category}: {iss.message}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Search & Filter Toolbar */}
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="relative flex-1 max-w-sm min-w-[200px]">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-text-muted" />
+              <input
+                type="text"
+                value={segmentSearch}
+                onChange={(e) => setSegmentSearch(e.target.value)}
+                placeholder="Search segments by source or translation..."
+                className="w-full bg-surface border border-border-default rounded-lg pl-9 pr-3 py-1.5 text-xs text-text-primary placeholder:text-text-muted focus:outline-none focus:border-primary"
+              />
+            </div>
+
+            <div className="flex items-center gap-1">
+              {(['all', 'translated', 'failed', 'issues'] as const).map(f => (
+                <button
+                  key={f}
+                  onClick={() => setSegmentFilter(f)}
+                  className={`px-3 py-1 rounded-md text-xs capitalize transition-colors ${
+                    segmentFilter === f
+                      ? 'bg-primary/10 text-primary font-semibold border border-primary/20'
+                      : 'text-text-secondary hover:text-text-primary hover:bg-surface-hover'
+                  }`}
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Segments Table */}
+          <div className="border border-border-subtle rounded-xl divide-y divide-border-subtle max-h-[55vh] overflow-y-auto">
+            {filteredSegments.length === 0 ? (
+              <div className="p-12 text-center text-text-muted text-xs">
+                {segments.length === 0 ? 'Chưa có dữ liệu phân đoạn cho tài liệu này.' : 'Không có đoạn văn nào khớp với bộ lọc hiện tại.'}
+              </div>
+            ) : (
+              filteredSegments.map(seg => {
+                const segId = seg.segment_id || seg.id;
+                const isEditing = editingSegmentId === segId;
+                const isRegen = isRegenerating === segId;
+
+                return (
+                  <div
+                    key={seg.id || segId}
+                    className="p-3.5 hover:bg-surface-hover/40 transition-colors grid grid-cols-12 gap-4 items-start text-xs"
+                  >
+                    {/* Location Badge */}
+                    <div className="col-span-2">
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-surface-subtle text-text-secondary border border-border-subtle block truncate" title={seg.unit_name || `Unit ${seg.unit_index}`}>
+                        {seg.unit_name || `Item ${seg.unit_index}`}
+                      </span>
+                      <div className="mt-1">
+                        {seg.user_edited && (
+                          <Badge variant="warning" size="sm">
+                            Edited
+                          </Badge>
                         )}
                       </div>
                     </div>
-                  );
-                })
-              )}
-            </div>
 
-            {/* Footer */}
-            <div className="px-6 py-3 border-t border-slate-800 bg-slate-950/60 flex items-center justify-between text-xs text-slate-400">
-              <span>Showing {filteredSegments.length} segments</span>
-              <button
-                onClick={() => setReviewDoc(null)}
-                className="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium transition-colors"
-              >
-                Close Review
-              </button>
-            </div>
+                    {/* Source Text */}
+                    <div className="col-span-5 text-text-primary leading-relaxed font-sans select-text">
+                      {seg.source_text}
+                    </div>
+
+                    {/* Target Text / Editor */}
+                    <div className="col-span-5 space-y-2">
+                      {isEditing ? (
+                        <div className="space-y-2">
+                          <textarea
+                            value={editingText}
+                            onChange={(e) => setEditingText(e.target.value)}
+                            rows={3}
+                            className="w-full bg-surface border border-primary rounded-lg p-2 text-xs text-text-primary focus:outline-none resize-y font-sans"
+                          />
+                          <div className="flex items-center gap-2">
+                            <Button size="sm" variant="primary" onClick={() => handleSaveSegment(segId)}>
+                              Save
+                            </Button>
+                            <Button size="sm" variant="secondary" onClick={() => setEditingSegmentId(null)}>
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="group relative">
+                          <div className="text-emerald-600 dark:text-emerald-400 leading-relaxed select-text min-h-[1.5rem] font-sans">
+                            {seg.target_text || <span className="text-text-muted italic">No translation yet</span>}
+                          </div>
+                          <div className="flex items-center gap-2 mt-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingSegmentId(segId);
+                                setEditingText(seg.target_text || '');
+                              }}
+                              className="text-[11px] text-text-muted hover:text-text-primary transition-colors underline"
+                            >
+                              Edit
+                            </button>
+                            <span className="text-border-default">·</span>
+                            <button
+                              type="button"
+                              onClick={() => handleRegenerateSegment(segId)}
+                              disabled={isRegen}
+                              className="text-[11px] text-primary hover:opacity-80 flex items-center gap-1 transition-colors disabled:opacity-50"
+                            >
+                              <RefreshCw className={`w-3 h-3 ${isRegen ? 'animate-spin' : ''}`} />
+                              <span>{isRegen ? 'Regenerating...' : 'Regenerate'}</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
-      )}
+      </Modal>
     </div>
   );
 };
